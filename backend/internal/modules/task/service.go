@@ -26,13 +26,36 @@ type Service interface {
 	ListChecklistItems(ctx context.Context, actorID uuid.UUID, actorRole auth.Role, taskID uuid.UUID) ([]ChecklistItemResponse, error)
 }
 
+// EventPublisher lets the service broadcast task changes over WebSocket
+// without importing the realtime package directly — *realtime.Publisher
+// satisfies this structurally. A nil publisher (e.g. in unit tests) means
+// broadcasting is silently skipped.
+type EventPublisher interface {
+	Publish(ctx context.Context, projectID string, event any) error
+}
+
+// Event is the payload broadcast to a project's WebSocket subscribers.
+type Event struct {
+	Type   string    `json:"type"` // "task.created" | "task.updated" | "task.deleted"
+	Task   *Response `json:"task,omitempty"`
+	TaskID string    `json:"task_id,omitempty"`
+}
+
 type service struct {
 	repo       Repository
 	projectSvc project.Service
+	publisher  EventPublisher
 }
 
-func NewService(repo Repository, projectSvc project.Service) Service {
-	return &service{repo: repo, projectSvc: projectSvc}
+func NewService(repo Repository, projectSvc project.Service, publisher EventPublisher) Service {
+	return &service{repo: repo, projectSvc: projectSvc, publisher: publisher}
+}
+
+func (s *service) publish(ctx context.Context, projectID uuid.UUID, event Event) {
+	if s.publisher == nil {
+		return
+	}
+	_ = s.publisher.Publish(ctx, projectID.String(), event)
 }
 
 func (s *service) Create(ctx context.Context, actorID uuid.UUID, actorRole auth.Role, req CreateRequest) (*Response, error) {
@@ -103,6 +126,7 @@ func (s *service) Create(ctx context.Context, actorID uuid.UUID, actorRole auth.
 	}
 
 	resp := toResponse(t, req.Tags)
+	s.publish(ctx, t.ProjectID, Event{Type: "task.created", Task: &resp})
 	return &resp, nil
 }
 
@@ -208,6 +232,7 @@ func (s *service) Update(ctx context.Context, actorID uuid.UUID, actorRole auth.
 	}
 
 	resp := toResponse(t, tags)
+	s.publish(ctx, t.ProjectID, Event{Type: "task.updated", Task: &resp})
 	return &resp, nil
 }
 
@@ -230,6 +255,7 @@ func (s *service) Delete(ctx context.Context, actorID uuid.UUID, actorRole auth.
 	if err := s.repo.Delete(ctx, id); err != nil {
 		return apperrors.Internal("failed to delete task")
 	}
+	s.publish(ctx, t.ProjectID, Event{Type: "task.deleted", TaskID: id.String()})
 	return nil
 }
 

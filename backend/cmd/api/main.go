@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 
 	"github.com/gofiber/fiber/v2"
@@ -13,6 +14,7 @@ import (
 	"github.com/khomkrittk/taskworked/backend/internal/modules/task"
 	"github.com/khomkrittk/taskworked/backend/internal/platform/cache"
 	"github.com/khomkrittk/taskworked/backend/internal/platform/database"
+	"github.com/khomkrittk/taskworked/backend/internal/realtime"
 )
 
 func main() {
@@ -41,8 +43,15 @@ func main() {
 	projectService := project.NewService(projectRepo)
 	projectHandler := project.NewHandler(projectService)
 
+	hub := realtime.NewHub()
+	publisher := realtime.NewPublisher(redisClient)
+
+	subscriberCtx, stopSubscriber := context.WithCancel(context.Background())
+	defer stopSubscriber()
+	go realtime.RunSubscriber(subscriberCtx, redisClient, hub)
+
 	taskRepo := task.NewRepository(db)
-	taskService := task.NewService(taskRepo, projectService)
+	taskService := task.NewService(taskRepo, projectService, publisher)
 	taskHandler := task.NewHandler(taskService)
 
 	requireAuth := appmiddleware.RequireAuth(tokens)
@@ -63,6 +72,7 @@ func main() {
 	authHandler.RegisterRoutes(api, requireAuth)
 	projectHandler.RegisterRoutes(api.Group("", requireAuth))
 	taskHandler.RegisterRoutes(api.Group("", requireAuth))
+	realtime.RegisterRoute(app, tokens, projectService, hub)
 
 	log.Fatal(app.Listen(":" + cfg.Port))
 }

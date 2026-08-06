@@ -64,7 +64,12 @@ export default function TaskListPage() {
           <Link to="/projects" className="text-sm text-muted-foreground">← Projects</Link>
           <h1 className="text-2xl font-semibold">{project?.name ?? "Tasks"}</h1>
         </div>
-        <Button onClick={() => setShowForm((v) => !v)}>{showForm ? "Cancel" : "New Task"}</Button>
+        <div className="flex gap-2">
+          <Link to={`/projects/${projectId}/board`}>
+            <Button variant="outline">Board view</Button>
+          </Link>
+          <Button onClick={() => setShowForm((v) => !v)}>{showForm ? "Cancel" : "New Task"}</Button>
+        </div>
       </div>
 
       {showForm && (

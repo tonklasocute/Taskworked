@@ -167,7 +167,7 @@ func appErrStatus(t *testing.T, err error) int {
 func TestCreate_MemberCanCreateTaskAsReporter(t *testing.T) {
 	repo := newFakeRepository()
 	projSvc := newFakeProjectService()
-	svc := NewService(repo, projSvc)
+	svc := NewService(repo, projSvc, nil)
 
 	projectID := uuid.New()
 	member := uuid.New()
@@ -194,7 +194,7 @@ func TestCreate_MemberCanCreateTaskAsReporter(t *testing.T) {
 func TestCreate_NonMemberIsForbidden(t *testing.T) {
 	repo := newFakeRepository()
 	projSvc := newFakeProjectService()
-	svc := NewService(repo, projSvc)
+	svc := NewService(repo, projSvc, nil)
 
 	projectID := uuid.New()
 	outsider := uuid.New()
@@ -214,7 +214,7 @@ func TestCreate_NonMemberIsForbidden(t *testing.T) {
 func TestCreate_AssigneeMustBeProjectMember(t *testing.T) {
 	repo := newFakeRepository()
 	projSvc := newFakeProjectService()
-	svc := NewService(repo, projSvc)
+	svc := NewService(repo, projSvc, nil)
 
 	projectID := uuid.New()
 	reporter := uuid.New()
@@ -238,7 +238,7 @@ func TestCreate_AssigneeMustBeProjectMember(t *testing.T) {
 func TestCreate_ParentTaskMustBeSameProject(t *testing.T) {
 	repo := newFakeRepository()
 	projSvc := newFakeProjectService()
-	svc := NewService(repo, projSvc)
+	svc := NewService(repo, projSvc, nil)
 
 	projectA := uuid.New()
 	projectB := uuid.New()
@@ -270,7 +270,7 @@ func TestCreate_ParentTaskMustBeSameProject(t *testing.T) {
 func TestUpdate_PlainMemberCannotEditOthersTask(t *testing.T) {
 	repo := newFakeRepository()
 	projSvc := newFakeProjectService()
-	svc := NewService(repo, projSvc)
+	svc := NewService(repo, projSvc, nil)
 
 	projectID := uuid.New()
 	reporter := uuid.New()
@@ -296,7 +296,7 @@ func TestUpdate_PlainMemberCannotEditOthersTask(t *testing.T) {
 func TestUpdate_AssigneeCanEdit(t *testing.T) {
 	repo := newFakeRepository()
 	projSvc := newFakeProjectService()
-	svc := NewService(repo, projSvc)
+	svc := NewService(repo, projSvc, nil)
 
 	projectID := uuid.New()
 	reporter := uuid.New()
@@ -327,7 +327,7 @@ func TestUpdate_AssigneeCanEdit(t *testing.T) {
 func TestUpdate_ProjectManagerCanEditAnyTask(t *testing.T) {
 	repo := newFakeRepository()
 	projSvc := newFakeProjectService()
-	svc := NewService(repo, projSvc)
+	svc := NewService(repo, projSvc, nil)
 
 	projectID := uuid.New()
 	reporter := uuid.New()
@@ -353,7 +353,7 @@ func TestUpdate_ProjectManagerCanEditAnyTask(t *testing.T) {
 func TestDelete_OnlyReporterOrManagerCanDelete(t *testing.T) {
 	repo := newFakeRepository()
 	projSvc := newFakeProjectService()
-	svc := NewService(repo, projSvc)
+	svc := NewService(repo, projSvc, nil)
 
 	projectID := uuid.New()
 	reporter := uuid.New()

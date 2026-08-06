@@ -5,6 +5,7 @@ import RegisterPage from "@/features/auth/RegisterPage";
 import DashboardPage from "@/features/dashboard/DashboardPage";
 import ProjectsPage from "@/features/projects/ProjectsPage";
 import TaskListPage from "@/features/tasks/TaskListPage";
+import KanbanBoard from "@/features/tasks/KanbanBoard";
 
 const router = createBrowserRouter([
   { path: "/login", element: <LoginPage /> },
@@ -15,6 +16,7 @@ const router = createBrowserRouter([
       { path: "/dashboard", element: <DashboardPage /> },
       { path: "/projects", element: <ProjectsPage /> },
       { path: "/projects/:projectId", element: <TaskListPage /> },
+      { path: "/projects/:projectId/board", element: <KanbanBoard /> },
     ],
   },
   { path: "/", element: <Navigate to="/dashboard" replace /> },
