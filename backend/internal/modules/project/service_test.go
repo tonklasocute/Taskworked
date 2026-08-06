@@ -78,6 +78,14 @@ func (f *fakeRepository) FindMember(_ context.Context, projectID, userID uuid.UU
 	return m, nil
 }
 
+func (f *fakeRepository) ListMembers(_ context.Context, projectID uuid.UUID) ([]Member, error) {
+	var result []Member
+	for _, m := range f.members[projectID] {
+		result = append(result, *m)
+	}
+	return result, nil
+}
+
 func appErrStatus(t *testing.T, err error) int {
 	t.Helper()
 	appErr, ok := err.(*apperrors.AppError)
@@ -89,7 +97,7 @@ func appErrStatus(t *testing.T, err error) int {
 
 func TestCreate_AddsCreatorAsOwnerMember(t *testing.T) {
 	repo := newFakeRepository()
-	svc := NewService(repo)
+	svc := NewService(repo, nil)
 	owner := uuid.New()
 
 	resp, err := svc.Create(context.Background(), owner, CreateRequest{Name: "Website Revamp"})
@@ -112,7 +120,7 @@ func TestCreate_AddsCreatorAsOwnerMember(t *testing.T) {
 
 func TestGet_NonMemberIsForbidden(t *testing.T) {
 	repo := newFakeRepository()
-	svc := NewService(repo)
+	svc := NewService(repo, nil)
 	owner := uuid.New()
 	outsider := uuid.New()
 
@@ -130,7 +138,7 @@ func TestGet_NonMemberIsForbidden(t *testing.T) {
 
 func TestGet_OrgAdminCanViewAnyProject(t *testing.T) {
 	repo := newFakeRepository()
-	svc := NewService(repo)
+	svc := NewService(repo, nil)
 	owner := uuid.New()
 	admin := uuid.New()
 
@@ -144,7 +152,7 @@ func TestGet_OrgAdminCanViewAnyProject(t *testing.T) {
 
 func TestUpdate_PlainMemberCannotUpdate(t *testing.T) {
 	repo := newFakeRepository()
-	svc := NewService(repo)
+	svc := NewService(repo, nil)
 	owner := uuid.New()
 	member := uuid.New()
 
@@ -164,7 +172,7 @@ func TestUpdate_PlainMemberCannotUpdate(t *testing.T) {
 
 func TestUpdate_OwnerCanUpdate(t *testing.T) {
 	repo := newFakeRepository()
-	svc := NewService(repo)
+	svc := NewService(repo, nil)
 	owner := uuid.New()
 
 	resp, _ := svc.Create(context.Background(), owner, CreateRequest{Name: "Internal Tool"})
@@ -182,7 +190,7 @@ func TestUpdate_OwnerCanUpdate(t *testing.T) {
 
 func TestRemoveMember_CannotRemoveOwner(t *testing.T) {
 	repo := newFakeRepository()
-	svc := NewService(repo)
+	svc := NewService(repo, nil)
 	owner := uuid.New()
 
 	resp, _ := svc.Create(context.Background(), owner, CreateRequest{Name: "Internal Tool"})
@@ -197,9 +205,90 @@ func TestRemoveMember_CannotRemoveOwner(t *testing.T) {
 	}
 }
 
+// fakeAuthService is a minimal stand-in for auth.Service — only
+// GetUsersByIDs is exercised by ListMembers.
+type fakeAuthService struct {
+	usersByID map[uuid.UUID]auth.UserResponse
+}
+
+func newFakeAuthService(users ...auth.UserResponse) *fakeAuthService {
+	f := &fakeAuthService{usersByID: make(map[uuid.UUID]auth.UserResponse)}
+	for _, u := range users {
+		id, _ := uuid.Parse(u.ID)
+		f.usersByID[id] = u
+	}
+	return f
+}
+
+func (f *fakeAuthService) GetUsersByIDs(_ context.Context, ids []uuid.UUID) ([]auth.UserResponse, error) {
+	var result []auth.UserResponse
+	for _, id := range ids {
+		if u, ok := f.usersByID[id]; ok {
+			result = append(result, u)
+		}
+	}
+	return result, nil
+}
+
+func (f *fakeAuthService) Register(context.Context, auth.RegisterRequest) (*auth.AuthResponse, error) {
+	panic("not implemented")
+}
+func (f *fakeAuthService) Login(context.Context, auth.LoginRequest) (*auth.AuthResponse, error) {
+	panic("not implemented")
+}
+func (f *fakeAuthService) Refresh(context.Context, auth.RefreshRequest) (*auth.AuthResponse, error) {
+	panic("not implemented")
+}
+func (f *fakeAuthService) Logout(context.Context, string) error { panic("not implemented") }
+func (f *fakeAuthService) ListUsers(context.Context) ([]auth.UserResponse, error) {
+	panic("not implemented")
+}
+func (f *fakeAuthService) UpdateRole(context.Context, auth.Role, uuid.UUID, auth.UpdateRoleRequest) (*auth.UserResponse, error) {
+	panic("not implemented")
+}
+func (f *fakeAuthService) UpdateDepartment(context.Context, auth.Role, uuid.UUID, auth.UpdateDepartmentRequest) (*auth.UserResponse, error) {
+	panic("not implemented")
+}
+
+func TestListMembers_ReturnsEnrichedDetails(t *testing.T) {
+	repo := newFakeRepository()
+	owner := uuid.New()
+	authSvc := newFakeAuthService(auth.UserResponse{ID: owner.String(), Name: "Alice", Email: "alice@example.com"})
+	svc := NewService(repo, authSvc)
+
+	resp, _ := svc.Create(context.Background(), owner, CreateRequest{Name: "Internal Tool"})
+	projectID, _ := uuid.Parse(resp.ID)
+
+	members, err := svc.ListMembers(context.Background(), owner, auth.RoleEmployee, projectID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(members) != 1 || members[0].Name != "Alice" {
+		t.Errorf("expected 1 enriched member named Alice, got %v", members)
+	}
+}
+
+func TestListMembers_NonMemberForbidden(t *testing.T) {
+	repo := newFakeRepository()
+	owner := uuid.New()
+	outsider := uuid.New()
+	svc := NewService(repo, newFakeAuthService())
+
+	resp, _ := svc.Create(context.Background(), owner, CreateRequest{Name: "Internal Tool"})
+	projectID, _ := uuid.Parse(resp.ID)
+
+	_, err := svc.ListMembers(context.Background(), outsider, auth.RoleEmployee, projectID)
+	if err == nil {
+		t.Fatal("expected forbidden error, got nil")
+	}
+	if status := appErrStatus(t, err); status != 403 {
+		t.Errorf("expected 403, got %d", status)
+	}
+}
+
 func TestAddMember_ByPlainMemberIsForbidden(t *testing.T) {
 	repo := newFakeRepository()
-	svc := NewService(repo)
+	svc := NewService(repo, nil)
 	owner := uuid.New()
 	member := uuid.New()
 	newUser := uuid.New()

@@ -15,6 +15,11 @@ type Repository interface {
 	FindByEmail(ctx context.Context, email string) (*User, error)
 	FindByID(ctx context.Context, id uuid.UUID) (*User, error)
 	UpdatePassword(ctx context.Context, id uuid.UUID, passwordHash string) error
+
+	ListAll(ctx context.Context) ([]User, error)
+	FindByIDs(ctx context.Context, ids []uuid.UUID) ([]User, error)
+	UpdateRole(ctx context.Context, id uuid.UUID, role Role) error
+	UpdateDepartment(ctx context.Context, id uuid.UUID, departmentID *uuid.UUID) error
 }
 
 type repository struct {
@@ -55,4 +60,27 @@ func (r *repository) FindByID(ctx context.Context, id uuid.UUID) (*User, error) 
 
 func (r *repository) UpdatePassword(ctx context.Context, id uuid.UUID, passwordHash string) error {
 	return r.db.WithContext(ctx).Model(&User{}).Where("id = ?", id).Update("password_hash", passwordHash).Error
+}
+
+func (r *repository) ListAll(ctx context.Context) ([]User, error) {
+	var users []User
+	err := r.db.WithContext(ctx).Order("name ASC").Find(&users).Error
+	return users, err
+}
+
+func (r *repository) FindByIDs(ctx context.Context, ids []uuid.UUID) ([]User, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	var users []User
+	err := r.db.WithContext(ctx).Where("id IN ?", ids).Find(&users).Error
+	return users, err
+}
+
+func (r *repository) UpdateRole(ctx context.Context, id uuid.UUID, role Role) error {
+	return r.db.WithContext(ctx).Model(&User{}).Where("id = ?", id).Update("role", role).Error
+}
+
+func (r *repository) UpdateDepartment(ctx context.Context, id uuid.UUID, departmentID *uuid.UUID) error {
+	return r.db.WithContext(ctx).Model(&User{}).Where("id = ?", id).Update("department_id", departmentID).Error
 }

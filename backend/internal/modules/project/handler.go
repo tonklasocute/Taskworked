@@ -28,6 +28,7 @@ func (h *Handler) RegisterRoutes(router fiber.Router) {
 	r.Patch("/:id", h.update)
 	r.Delete("/:id", h.delete)
 	r.Post("/:id/members", h.addMember)
+	r.Get("/:id/members", h.listMembers)
 	r.Delete("/:id/members/:userId", h.removeMember)
 }
 
@@ -159,6 +160,24 @@ func (h *Handler) addMember(c *fiber.Ctx) error {
 		return httpctx.WriteErr(c, err)
 	}
 	return response.Created(c, fiber.Map{"message": "member added"})
+}
+
+func (h *Handler) listMembers(c *fiber.Ctx) error {
+	id, err := uuid.Parse(c.Params("id"))
+	if err != nil {
+		return response.Err(c, fiber.StatusBadRequest, "invalid project id")
+	}
+
+	actorID, err := httpctx.ActorID(c)
+	if err != nil {
+		return httpctx.WriteErr(c, err)
+	}
+
+	result, err := h.service.ListMembers(c.Context(), actorID, auth.Role(httpctx.ActorRole(c)), id)
+	if err != nil {
+		return httpctx.WriteErr(c, err)
+	}
+	return response.OK(c, result)
 }
 
 func (h *Handler) removeMember(c *fiber.Ctx) error {

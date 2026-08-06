@@ -60,6 +60,9 @@ func (f *fakeProjectService) AddMember(context.Context, uuid.UUID, auth.Role, uu
 func (f *fakeProjectService) RemoveMember(context.Context, uuid.UUID, auth.Role, uuid.UUID, uuid.UUID) error {
 	panic("not implemented")
 }
+func (f *fakeProjectService) ListMembers(context.Context, uuid.UUID, auth.Role, uuid.UUID) ([]project.MemberDetail, error) {
+	panic("not implemented")
+}
 
 type fakeTaskService struct {
 	responses []task.Response
@@ -105,6 +108,9 @@ func (f *fakeTaskService) RemoveDependency(context.Context, uuid.UUID, auth.Role
 	panic("not implemented")
 }
 func (f *fakeTaskService) GetGanttView(context.Context, uuid.UUID, auth.Role, uuid.UUID) (*task.GanttResponse, error) {
+	panic("not implemented")
+}
+func (f *fakeTaskService) GetWorkload(context.Context, uuid.UUID) (int64, error) {
 	panic("not implemented")
 }
 

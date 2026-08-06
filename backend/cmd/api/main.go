@@ -14,6 +14,7 @@ import (
 	"github.com/khomkrittk/taskworked/backend/internal/modules/project"
 	"github.com/khomkrittk/taskworked/backend/internal/modules/report"
 	"github.com/khomkrittk/taskworked/backend/internal/modules/task"
+	"github.com/khomkrittk/taskworked/backend/internal/modules/team"
 	"github.com/khomkrittk/taskworked/backend/internal/platform/cache"
 	"github.com/khomkrittk/taskworked/backend/internal/platform/database"
 	"github.com/khomkrittk/taskworked/backend/internal/realtime"
@@ -31,6 +32,7 @@ func main() {
 		&project.Project{}, &project.Member{},
 		&task.Task{}, &task.ChecklistItem{}, &task.Tag{}, &task.Dependency{},
 		&actionplan.Goal{}, &actionplan.Milestone{},
+		&team.Department{},
 	); err != nil {
 		log.Fatalf("failed to run migrations: %v", err)
 	}
@@ -43,7 +45,7 @@ func main() {
 	authHandler := auth.NewHandler(authService)
 
 	projectRepo := project.NewRepository(db)
-	projectService := project.NewService(projectRepo)
+	projectService := project.NewService(projectRepo, authService)
 	projectHandler := project.NewHandler(projectService)
 
 	hub := realtime.NewHub()
@@ -64,7 +66,12 @@ func main() {
 	reportService := report.NewService(projectService, taskService)
 	reportHandler := report.NewHandler(reportService)
 
+	teamRepo := team.NewRepository(db)
+	teamService := team.NewService(teamRepo, authService, taskService, &team.RedisPresence{Client: redisClient})
+	teamHandler := team.NewHandler(teamService)
+
 	requireAuth := appmiddleware.RequireAuth(tokens)
+	trackPresence := appmiddleware.TrackPresence(redisClient)
 
 	app := fiber.New(fiber.Config{
 		ErrorHandler: func(c *fiber.Ctx, err error) error {
@@ -80,10 +87,12 @@ func main() {
 
 	api := app.Group("/api/v1")
 	authHandler.RegisterRoutes(api, requireAuth)
-	projectHandler.RegisterRoutes(api.Group("", requireAuth))
-	taskHandler.RegisterRoutes(api.Group("", requireAuth))
-	actionPlanHandler.RegisterRoutes(api.Group("", requireAuth))
-	reportHandler.RegisterRoutes(api.Group("", requireAuth))
+	authHandler.RegisterUserRoutes(api.Group("", requireAuth, trackPresence))
+	projectHandler.RegisterRoutes(api.Group("", requireAuth, trackPresence))
+	taskHandler.RegisterRoutes(api.Group("", requireAuth, trackPresence))
+	actionPlanHandler.RegisterRoutes(api.Group("", requireAuth, trackPresence))
+	reportHandler.RegisterRoutes(api.Group("", requireAuth, trackPresence))
+	teamHandler.RegisterRoutes(api.Group("", requireAuth, trackPresence))
 	realtime.RegisterRoute(app, tokens, projectService, hub)
 
 	log.Fatal(app.Listen(":" + cfg.Port))

@@ -18,6 +18,11 @@ type Service interface {
 	Delete(ctx context.Context, actorID uuid.UUID, actorRole auth.Role, id uuid.UUID) error
 	AddMember(ctx context.Context, actorID uuid.UUID, actorRole auth.Role, id uuid.UUID, req AddMemberRequest) error
 	RemoveMember(ctx context.Context, actorID uuid.UUID, actorRole auth.Role, id, targetUserID uuid.UUID) error
+	// ListMembers returns a project's members enriched with user details
+	// (name/email/avatar) — any member can view. This is what lets other
+	// views (Calendar filters, Reports performance table, ...) show names
+	// instead of raw assignee UUIDs.
+	ListMembers(ctx context.Context, actorID uuid.UUID, actorRole auth.Role, id uuid.UUID) ([]MemberDetail, error)
 
 	// CheckMembership lets other modules (e.g. task) authorize
 	// project-scoped actions without depending on this module's
@@ -27,11 +32,12 @@ type Service interface {
 }
 
 type service struct {
-	repo Repository
+	repo    Repository
+	authSvc auth.Service
 }
 
-func NewService(repo Repository) Service {
-	return &service{repo: repo}
+func NewService(repo Repository, authSvc auth.Service) Service {
+	return &service{repo: repo, authSvc: authSvc}
 }
 
 func (s *service) Create(ctx context.Context, actorID uuid.UUID, req CreateRequest) (*Response, error) {
@@ -203,6 +209,39 @@ func (s *service) RemoveMember(ctx context.Context, actorID uuid.UUID, actorRole
 		return apperrors.Internal("failed to remove member")
 	}
 	return nil
+}
+
+func (s *service) ListMembers(ctx context.Context, actorID uuid.UUID, actorRole auth.Role, id uuid.UUID) ([]MemberDetail, error) {
+	if !auth.IsOrgAdmin(actorRole) {
+		if _, err := s.repo.FindMember(ctx, id, actorID); err != nil {
+			return nil, apperrors.Forbidden("not a member of this project")
+		}
+	}
+
+	members, err := s.repo.ListMembers(ctx, id)
+	if err != nil {
+		return nil, apperrors.Internal("failed to list members")
+	}
+
+	userIDs := make([]uuid.UUID, len(members))
+	for i, m := range members {
+		userIDs[i] = m.UserID
+	}
+	users, err := s.authSvc.GetUsersByIDs(ctx, userIDs)
+	if err != nil {
+		return nil, err
+	}
+	userByID := make(map[string]auth.UserResponse, len(users))
+	for _, u := range users {
+		userByID[u.ID] = u
+	}
+
+	details := make([]MemberDetail, len(members))
+	for i, m := range members {
+		u := userByID[m.UserID.String()]
+		details[i] = MemberDetail{UserID: m.UserID.String(), Role: m.Role, Name: u.Name, Email: u.Email, AvatarURL: u.AvatarURL}
+	}
+	return details, nil
 }
 
 // canManage reports whether actor is an org admin/super admin, or the

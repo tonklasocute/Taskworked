@@ -42,6 +42,14 @@ type Response struct {
 	CreatedAt   time.Time  `json:"created_at"`
 }
 
+type MemberDetail struct {
+	UserID    string     `json:"user_id"`
+	Role      MemberRole `json:"role"`
+	Name      string     `json:"name"`
+	Email     string     `json:"email"`
+	AvatarURL string     `json:"avatar_url"`
+}
+
 type ListResponse struct {
 	Items    []Response `json:"items"`
 	Total    int64      `json:"total"`

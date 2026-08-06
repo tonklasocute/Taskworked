@@ -61,6 +61,9 @@ func (f *fakeProjectService) AddMember(context.Context, uuid.UUID, auth.Role, uu
 func (f *fakeProjectService) RemoveMember(context.Context, uuid.UUID, auth.Role, uuid.UUID, uuid.UUID) error {
 	panic("not implemented")
 }
+func (f *fakeProjectService) ListMembers(context.Context, uuid.UUID, auth.Role, uuid.UUID) ([]project.MemberDetail, error) {
+	panic("not implemented")
+}
 
 // fakeRepository is an in-memory stand-in for task.Repository.
 type fakeRepository struct {
@@ -193,6 +196,16 @@ func (f *fakeRepository) ListDependenciesForProject(_ context.Context, projectID
 		}
 	}
 	return result, nil
+}
+
+func (f *fakeRepository) CountActiveByAssignee(_ context.Context, assigneeID uuid.UUID) (int64, error) {
+	var count int64
+	for _, t := range f.tasks {
+		if t.AssigneeID != nil && *t.AssigneeID == assigneeID && t.Status != StatusDone {
+			count++
+		}
+	}
+	return count, nil
 }
 
 func appErrStatus(t *testing.T, err error) int {
@@ -744,6 +757,38 @@ func TestUpdate_MovingAwayFromDoneClearsCompletedAt(t *testing.T) {
 	}
 	if updated.CompletedAt != nil {
 		t.Errorf("expected completed_at to be cleared, got %v", *updated.CompletedAt)
+	}
+}
+
+func TestGetWorkload_CountsActiveTasksAcrossProjectsExcludingDone(t *testing.T) {
+	repo := newFakeRepository()
+	projSvc := newFakeProjectService()
+	svc := NewService(repo, projSvc, nil)
+
+	projectA := uuid.New()
+	projectB := uuid.New()
+	reporter := uuid.New()
+	assignee := uuid.New()
+	projSvc.addMember(projectA, reporter, false)
+	projSvc.addMember(projectA, assignee, false)
+	projSvc.addMember(projectB, reporter, false)
+	projSvc.addMember(projectB, assignee, false)
+
+	assigneeStr := assignee.String()
+	t1, _ := svc.Create(context.Background(), reporter, auth.RoleEmployee, CreateRequest{ProjectID: projectA.String(), Title: "A1", AssigneeID: &assigneeStr})
+	_, _ = svc.Create(context.Background(), reporter, auth.RoleEmployee, CreateRequest{ProjectID: projectB.String(), Title: "B1", AssigneeID: &assigneeStr})
+	_, _ = svc.Create(context.Background(), reporter, auth.RoleEmployee, CreateRequest{ProjectID: projectB.String(), Title: "B2 unassigned"})
+
+	// Mark t1 done — it should drop out of the workload count.
+	done := StatusDone
+	svc.Update(context.Background(), reporter, auth.RoleEmployee, mustParse(t, t1.ID), UpdateRequest{Status: &done})
+
+	count, err := svc.GetWorkload(context.Background(), assignee)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("expected workload 1 (only B1 active), got %d", count)
 	}
 }
 

@@ -34,6 +34,10 @@ type Repository interface {
 	AddDependency(ctx context.Context, d *Dependency) error
 	RemoveDependency(ctx context.Context, taskID, dependsOnID uuid.UUID) error
 	ListDependenciesForProject(ctx context.Context, projectID uuid.UUID) ([]Dependency, error)
+
+	// CountActiveByAssignee counts a user's non-Done tasks across every
+	// project (not project-scoped) — the Team directory's "workload".
+	CountActiveByAssignee(ctx context.Context, assigneeID uuid.UUID) (int64, error)
 }
 
 type repository struct {
@@ -179,4 +183,12 @@ func (r *repository) ListDependenciesForProject(ctx context.Context, projectID u
 		Where("tasks.project_id = ?", projectID).
 		Find(&deps).Error
 	return deps, err
+}
+
+func (r *repository) CountActiveByAssignee(ctx context.Context, assigneeID uuid.UUID) (int64, error) {
+	var count int64
+	err := r.db.WithContext(ctx).Model(&Task{}).
+		Where("assignee_id = ? AND status != ?", assigneeID, StatusDone).
+		Count(&count).Error
+	return count, err
 }

@@ -22,6 +22,7 @@ type Repository interface {
 	AddMember(ctx context.Context, m *Member) error
 	RemoveMember(ctx context.Context, projectID, userID uuid.UUID) error
 	FindMember(ctx context.Context, projectID, userID uuid.UUID) (*Member, error)
+	ListMembers(ctx context.Context, projectID uuid.UUID) ([]Member, error)
 }
 
 type repository struct {
@@ -104,4 +105,10 @@ func (r *repository) FindMember(ctx context.Context, projectID, userID uuid.UUID
 		return nil, err
 	}
 	return &m, nil
+}
+
+func (r *repository) ListMembers(ctx context.Context, projectID uuid.UUID) ([]Member, error) {
+	var members []Member
+	err := r.db.WithContext(ctx).Where("project_id = ?", projectID).Find(&members).Error
+	return members, err
 }

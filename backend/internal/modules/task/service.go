@@ -33,6 +33,11 @@ type Service interface {
 	// (unpaginated), membership-checked. Shared by any module that needs
 	// a project's full task set — currently Gantt and Action Plan.
 	ListAllResponses(ctx context.Context, actorID uuid.UUID, actorRole auth.Role, projectID uuid.UUID) ([]Response, error)
+
+	// GetWorkload counts a user's active (non-Done) tasks across every
+	// project. No membership check — it's a count, not task details, and
+	// is intended to be visible org-wide via the Team directory.
+	GetWorkload(ctx context.Context, userID uuid.UUID) (int64, error)
 }
 
 // EventPublisher lets the service broadcast task changes over WebSocket
@@ -488,6 +493,14 @@ func (s *service) ListAllResponses(ctx context.Context, actorID uuid.UUID, actor
 		responses[i] = toResponse(&tasks[i], tags)
 	}
 	return responses, nil
+}
+
+func (s *service) GetWorkload(ctx context.Context, userID uuid.UUID) (int64, error) {
+	count, err := s.repo.CountActiveByAssignee(ctx, userID)
+	if err != nil {
+		return 0, apperrors.Internal("failed to count workload")
+	}
+	return count, nil
 }
 
 func (s *service) GetGanttView(ctx context.Context, actorID uuid.UUID, actorRole auth.Role, projectID uuid.UUID) (*GanttResponse, error) {

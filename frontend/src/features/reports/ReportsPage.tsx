@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
-import { getProject } from "@/features/projects/api";
+import { getProject, getProjectMembers } from "@/features/projects/api";
 import { downloadCsv, getPeriodReport } from "@/features/reports/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -33,6 +33,13 @@ export default function ReportsPage() {
     queryFn: () => getPeriodReport(projectId!, period),
     enabled: !!projectId,
   });
+
+  const { data: members } = useQuery({
+    queryKey: ["project-members", projectId],
+    queryFn: () => getProjectMembers(projectId!),
+    enabled: !!projectId,
+  });
+  const nameByUserId = new Map((members ?? []).map((m) => [m.user_id, m.name]));
 
   return (
     <div className="min-h-screen p-6 print:p-0">
@@ -113,7 +120,7 @@ export default function ReportsPage() {
                     <tbody>
                       {report.performance.map((p) => (
                         <tr key={p.assignee_id} className="border-b border-border last:border-0">
-                          <td className="py-2 pr-4 font-mono text-xs">{p.assignee_id}</td>
+                          <td className="py-2 pr-4">{nameByUserId.get(p.assignee_id) ?? p.assignee_id}</td>
                           <td className="py-2 pr-4">{p.completed_count}</td>
                           <td className="py-2 pr-4">{p.on_time_count}</td>
                           <td className="py-2 pr-4">{p.late_count}</td>

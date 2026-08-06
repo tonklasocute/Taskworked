@@ -14,6 +14,16 @@ type Service interface {
 	Login(ctx context.Context, req LoginRequest) (*AuthResponse, error)
 	Refresh(ctx context.Context, req RefreshRequest) (*AuthResponse, error)
 	Logout(ctx context.Context, userID string) error
+
+	// ListUsers is the org-wide directory — visible to any authenticated
+	// user, same as seeing colleagues' names in a Slack workspace.
+	ListUsers(ctx context.Context) ([]UserResponse, error)
+	// GetUsersByIDs lets other modules (project, for enriching a member
+	// list with names) resolve a batch of IDs without depending on the
+	// full auth.Repository.
+	GetUsersByIDs(ctx context.Context, ids []uuid.UUID) ([]UserResponse, error)
+	UpdateRole(ctx context.Context, actorRole Role, targetUserID uuid.UUID, req UpdateRoleRequest) (*UserResponse, error)
+	UpdateDepartment(ctx context.Context, actorRole Role, targetUserID uuid.UUID, req UpdateDepartmentRequest) (*UserResponse, error)
 }
 
 type service struct {
@@ -84,6 +94,68 @@ func (s *service) Logout(ctx context.Context, userID string) error {
 		return apperrors.BadRequest("invalid user id")
 	}
 	return s.tokens.RevokeRefreshToken(ctx, id)
+}
+
+func (s *service) ListUsers(ctx context.Context) ([]UserResponse, error) {
+	users, err := s.repo.ListAll(ctx)
+	if err != nil {
+		return nil, apperrors.Internal("failed to list users")
+	}
+	responses := make([]UserResponse, len(users))
+	for i := range users {
+		responses[i] = toUserResponse(&users[i])
+	}
+	return responses, nil
+}
+
+func (s *service) GetUsersByIDs(ctx context.Context, ids []uuid.UUID) ([]UserResponse, error) {
+	users, err := s.repo.FindByIDs(ctx, ids)
+	if err != nil {
+		return nil, apperrors.Internal("failed to look up users")
+	}
+	responses := make([]UserResponse, len(users))
+	for i := range users {
+		responses[i] = toUserResponse(&users[i])
+	}
+	return responses, nil
+}
+
+func (s *service) UpdateRole(ctx context.Context, actorRole Role, targetUserID uuid.UUID, req UpdateRoleRequest) (*UserResponse, error) {
+	if !IsOrgAdmin(actorRole) {
+		return nil, apperrors.Forbidden("only an admin can change roles")
+	}
+	if err := s.repo.UpdateRole(ctx, targetUserID, req.Role); err != nil {
+		return nil, apperrors.Internal("failed to update role")
+	}
+	user, err := s.repo.FindByID(ctx, targetUserID)
+	if err != nil {
+		return nil, apperrors.NotFound("user not found")
+	}
+	resp := toUserResponse(user)
+	return &resp, nil
+}
+
+func (s *service) UpdateDepartment(ctx context.Context, actorRole Role, targetUserID uuid.UUID, req UpdateDepartmentRequest) (*UserResponse, error) {
+	if !IsOrgAdmin(actorRole) {
+		return nil, apperrors.Forbidden("only an admin can change departments")
+	}
+	var departmentID *uuid.UUID
+	if req.DepartmentID != nil && *req.DepartmentID != "" {
+		parsed, err := uuid.Parse(*req.DepartmentID)
+		if err != nil {
+			return nil, apperrors.BadRequest("invalid department_id")
+		}
+		departmentID = &parsed
+	}
+	if err := s.repo.UpdateDepartment(ctx, targetUserID, departmentID); err != nil {
+		return nil, apperrors.Internal("failed to update department")
+	}
+	user, err := s.repo.FindByID(ctx, targetUserID)
+	if err != nil {
+		return nil, apperrors.NotFound("user not found")
+	}
+	resp := toUserResponse(user)
+	return &resp, nil
 }
 
 func (s *service) issueTokens(ctx context.Context, user *User) (*AuthResponse, error) {

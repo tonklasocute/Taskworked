@@ -18,3 +18,11 @@ export interface ProjectListResponse {
   page: number;
   page_size: number;
 }
+
+export interface ProjectMember {
+  user_id: string;
+  role: "owner" | "member";
+  name: string;
+  email: string;
+  avatar_url: string;
+}
