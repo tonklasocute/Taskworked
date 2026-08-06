@@ -379,6 +379,91 @@ func TestDelete_OnlyReporterOrManagerCanDelete(t *testing.T) {
 	}
 }
 
+func TestCreate_StartDateAfterDueDateIsRejected(t *testing.T) {
+	repo := newFakeRepository()
+	projSvc := newFakeProjectService()
+	svc := NewService(repo, projSvc, nil)
+
+	projectID := uuid.New()
+	reporter := uuid.New()
+	projSvc.addMember(projectID, reporter, false)
+
+	start := "2026-08-10"
+	due := "2026-08-01"
+	_, err := svc.Create(context.Background(), reporter, auth.RoleEmployee, CreateRequest{
+		ProjectID: projectID.String(),
+		Title:     "Set up CI",
+		StartDate: &start,
+		DueDate:   &due,
+	})
+	if err == nil {
+		t.Fatal("expected bad request error, got nil")
+	}
+	if status := appErrStatus(t, err); status != 400 {
+		t.Errorf("expected 400, got %d", status)
+	}
+}
+
+func TestUpdate_StartDateAfterExistingDueDateIsRejected(t *testing.T) {
+	repo := newFakeRepository()
+	projSvc := newFakeProjectService()
+	svc := NewService(repo, projSvc, nil)
+
+	projectID := uuid.New()
+	reporter := uuid.New()
+	projSvc.addMember(projectID, reporter, false)
+
+	due := "2026-08-01"
+	created, err := svc.Create(context.Background(), reporter, auth.RoleEmployee, CreateRequest{
+		ProjectID: projectID.String(),
+		Title:     "Set up CI",
+		DueDate:   &due,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	lateStart := "2026-08-10"
+	_, err = svc.Update(context.Background(), reporter, auth.RoleEmployee, mustParse(t, created.ID), UpdateRequest{StartDate: &lateStart})
+	if err == nil {
+		t.Fatal("expected bad request error, got nil")
+	}
+	if status := appErrStatus(t, err); status != 400 {
+		t.Errorf("expected 400, got %d", status)
+	}
+}
+
+func TestUpdate_ValidStartAndDueDateSpanIsAccepted(t *testing.T) {
+	repo := newFakeRepository()
+	projSvc := newFakeProjectService()
+	svc := NewService(repo, projSvc, nil)
+
+	projectID := uuid.New()
+	reporter := uuid.New()
+	projSvc.addMember(projectID, reporter, false)
+
+	created, err := svc.Create(context.Background(), reporter, auth.RoleEmployee, CreateRequest{
+		ProjectID: projectID.String(),
+		Title:     "Set up CI",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	start := "2026-08-01"
+	due := "2026-08-05"
+	updated, err := svc.Update(context.Background(), reporter, auth.RoleEmployee, mustParse(t, created.ID), UpdateRequest{StartDate: &start, DueDate: &due})
+	if err != nil {
+		t.Fatalf("expected valid span to be accepted, got error: %v", err)
+	}
+	if updated.StartDate == nil || updated.DueDate == nil {
+		t.Fatal("expected both start_date and due_date to be set")
+	}
+	if *updated.StartDate != start || *updated.DueDate != due {
+		t.Errorf("expected start_date=%q due_date=%q, got start=%q due=%q", start, due, *updated.StartDate, *updated.DueDate)
+	}
+}
+
 func mustParse(t *testing.T, s string) uuid.UUID {
 	t.Helper()
 	id, err := uuid.Parse(s)

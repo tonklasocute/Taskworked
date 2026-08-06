@@ -72,9 +72,9 @@ func (s *service) Create(ctx context.Context, actorID uuid.UUID, actorRole auth.
 		return nil, apperrors.Forbidden("not a member of this project")
 	}
 
-	dueDate, err := parseDueDate(req.DueDate)
+	startDate, dueDate, err := parseDateRange(req.StartDate, req.DueDate)
 	if err != nil {
-		return nil, apperrors.BadRequest("invalid due_date, expected YYYY-MM-DD")
+		return nil, err
 	}
 
 	var parentTaskID *uuid.UUID
@@ -110,6 +110,7 @@ func (s *service) Create(ctx context.Context, actorID uuid.UUID, actorRole auth.
 		Description:   req.Description,
 		Priority:      priority,
 		Status:        StatusBacklog,
+		StartDate:     startDate,
 		DueDate:       dueDate,
 		EstimateHours: req.EstimateHours,
 		AssigneeID:    assigneeID,
@@ -207,12 +208,22 @@ func (s *service) Update(ctx context.Context, actorID uuid.UUID, actorRole auth.
 	if req.EstimateHours != nil {
 		t.EstimateHours = req.EstimateHours
 	}
+	if req.StartDate != nil {
+		startDate, err := parseDueDate(req.StartDate)
+		if err != nil {
+			return nil, apperrors.BadRequest("invalid start_date, expected YYYY-MM-DD")
+		}
+		t.StartDate = startDate
+	}
 	if req.DueDate != nil {
 		dueDate, err := parseDueDate(req.DueDate)
 		if err != nil {
 			return nil, apperrors.BadRequest("invalid due_date, expected YYYY-MM-DD")
 		}
 		t.DueDate = dueDate
+	}
+	if t.StartDate != nil && t.DueDate != nil && t.StartDate.After(*t.DueDate) {
+		return nil, apperrors.BadRequest("start_date must not be after due_date")
 	}
 	if req.AssigneeID != nil {
 		assigneeID, err := s.validatedAssignee(ctx, actorRole, t.ProjectID, req.AssigneeID)
@@ -436,4 +447,22 @@ func parseDueDate(s *string) (*time.Time, error) {
 		return nil, err
 	}
 	return &t, nil
+}
+
+// parseDateRange parses start/due date strings and, if both are present,
+// enforces start <= due — the invariant the Calendar's drag/resize UI
+// relies on to render a sane span.
+func parseDateRange(startStr, dueStr *string) (start, due *time.Time, err error) {
+	start, err = parseDueDate(startStr)
+	if err != nil {
+		return nil, nil, apperrors.BadRequest("invalid start_date, expected YYYY-MM-DD")
+	}
+	due, err = parseDueDate(dueStr)
+	if err != nil {
+		return nil, nil, apperrors.BadRequest("invalid due_date, expected YYYY-MM-DD")
+	}
+	if start != nil && due != nil && start.After(*due) {
+		return nil, nil, apperrors.BadRequest("start_date must not be after due_date")
+	}
+	return start, due, nil
 }

@@ -8,6 +8,7 @@ type CreateRequest struct {
 	Title         string   `json:"title" validate:"required,min=2,max=200"`
 	Description   string   `json:"description" validate:"max=5000"`
 	Priority      Priority `json:"priority" validate:"omitempty,oneof=critical high medium low"`
+	StartDate     *string  `json:"start_date" validate:"omitempty,datetime=2006-01-02"`
 	DueDate       *string  `json:"due_date" validate:"omitempty,datetime=2006-01-02"`
 	EstimateHours *float64 `json:"estimate_hours" validate:"omitempty,gte=0"`
 	AssigneeID    *string  `json:"assignee_id" validate:"omitempty,uuid"`
@@ -19,6 +20,7 @@ type UpdateRequest struct {
 	Description   *string   `json:"description" validate:"omitempty,max=5000"`
 	Priority      *Priority `json:"priority" validate:"omitempty,oneof=critical high medium low"`
 	Status        *Status   `json:"status" validate:"omitempty,oneof=backlog todo doing review testing done blocked"`
+	StartDate     *string   `json:"start_date" validate:"omitempty,datetime=2006-01-02"`
 	DueDate       *string   `json:"due_date" validate:"omitempty,datetime=2006-01-02"`
 	EstimateHours *float64  `json:"estimate_hours" validate:"omitempty,gte=0"`
 	AssigneeID    *string   `json:"assignee_id" validate:"omitempty,uuid"`
@@ -48,19 +50,25 @@ type ListFilter struct {
 }
 
 type Response struct {
-	ID            string     `json:"id"`
-	ProjectID     string     `json:"project_id"`
-	ParentTaskID  *string    `json:"parent_task_id,omitempty"`
-	Title         string     `json:"title"`
-	Description   string     `json:"description"`
-	Priority      Priority   `json:"priority"`
-	Status        Status     `json:"status"`
-	DueDate       *time.Time `json:"due_date,omitempty"`
-	EstimateHours *float64   `json:"estimate_hours,omitempty"`
-	AssigneeID    *string    `json:"assignee_id,omitempty"`
-	ReporterID    string     `json:"reporter_id"`
-	Tags          []string   `json:"tags"`
-	CreatedAt     time.Time  `json:"created_at"`
+	ID           string   `json:"id"`
+	ProjectID    string   `json:"project_id"`
+	ParentTaskID *string  `json:"parent_task_id,omitempty"`
+	Title        string   `json:"title"`
+	Description  string   `json:"description"`
+	Priority     Priority `json:"priority"`
+	Status       Status   `json:"status"`
+	// StartDate/DueDate are calendar dates (day granularity, as enforced
+	// by the "YYYY-MM-DD" request format), so they're serialized as plain
+	// date strings rather than full RFC3339 timestamps — a timestamp would
+	// carry a spurious time-of-day and timezone offset that date-only
+	// clients (the Calendar view) would have to strip back out.
+	StartDate     *string   `json:"start_date,omitempty"`
+	DueDate       *string   `json:"due_date,omitempty"`
+	EstimateHours *float64  `json:"estimate_hours,omitempty"`
+	AssigneeID    *string   `json:"assignee_id,omitempty"`
+	ReporterID    string    `json:"reporter_id"`
+	Tags          []string  `json:"tags"`
+	CreatedAt     time.Time `json:"created_at"`
 }
 
 type ChecklistItemResponse struct {
@@ -100,7 +108,8 @@ func toResponse(t *Task, tags []string) Response {
 		Description:   t.Description,
 		Priority:      t.Priority,
 		Status:        t.Status,
-		DueDate:       t.DueDate,
+		StartDate:     formatDate(t.StartDate),
+		DueDate:       formatDate(t.DueDate),
 		EstimateHours: t.EstimateHours,
 		AssigneeID:    assigneeID,
 		ReporterID:    t.ReporterID.String(),
@@ -111,4 +120,12 @@ func toResponse(t *Task, tags []string) Response {
 
 func toChecklistResponse(c *ChecklistItem) ChecklistItemResponse {
 	return ChecklistItemResponse{ID: c.ID.String(), Text: c.Text, Done: c.Done, Position: c.Position}
+}
+
+func formatDate(t *time.Time) *string {
+	if t == nil {
+		return nil
+	}
+	s := t.Format("2006-01-02")
+	return &s
 }

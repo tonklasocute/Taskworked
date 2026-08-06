@@ -9,6 +9,7 @@ export interface Task {
   description: string;
   priority: TaskPriority;
   status: TaskStatus;
+  start_date?: string;
   due_date?: string;
   estimate_hours?: number;
   assignee_id?: string;

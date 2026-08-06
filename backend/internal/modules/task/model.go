@@ -28,13 +28,17 @@ const (
 )
 
 type Task struct {
-	ID            uuid.UUID  `gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
-	ProjectID     uuid.UUID  `gorm:"type:uuid;not null;index"`
-	ParentTaskID  *uuid.UUID `gorm:"type:uuid;index"`
-	Title         string     `gorm:"not null"`
-	Description   string
-	Priority      Priority `gorm:"type:varchar(20);not null;default:'medium'"`
-	Status        Status   `gorm:"type:varchar(20);not null;default:'backlog'"`
+	ID           uuid.UUID  `gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
+	ProjectID    uuid.UUID  `gorm:"type:uuid;not null;index"`
+	ParentTaskID *uuid.UUID `gorm:"type:uuid;index"`
+	Title        string     `gorm:"not null"`
+	Description  string
+	Priority     Priority `gorm:"type:varchar(20);not null;default:'medium'"`
+	Status       Status   `gorm:"type:varchar(20);not null;default:'backlog'"`
+	// StartDate is optional. When set (with DueDate), the task renders as a
+	// multi-day span on the Calendar; when nil, DueDate alone places it as
+	// a single-day event.
+	StartDate     *time.Time
 	DueDate       *time.Time
 	EstimateHours *float64
 	AssigneeID    *uuid.UUID `gorm:"type:uuid;index"`
