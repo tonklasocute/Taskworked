@@ -77,6 +77,9 @@ export default function TaskListPage() {
           <Link to={`/projects/${projectId}/action-plan`}>
             <Button variant="outline">Action Plan</Button>
           </Link>
+          <Link to={`/projects/${projectId}/reports`}>
+            <Button variant="outline">Reports</Button>
+          </Link>
           <Button onClick={() => setShowForm((v) => !v)}>{showForm ? "Cancel" : "New Task"}</Button>
         </div>
       </div>

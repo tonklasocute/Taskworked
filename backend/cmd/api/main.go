@@ -12,6 +12,7 @@ import (
 	"github.com/khomkrittk/taskworked/backend/internal/modules/actionplan"
 	"github.com/khomkrittk/taskworked/backend/internal/modules/auth"
 	"github.com/khomkrittk/taskworked/backend/internal/modules/project"
+	"github.com/khomkrittk/taskworked/backend/internal/modules/report"
 	"github.com/khomkrittk/taskworked/backend/internal/modules/task"
 	"github.com/khomkrittk/taskworked/backend/internal/platform/cache"
 	"github.com/khomkrittk/taskworked/backend/internal/platform/database"
@@ -60,6 +61,9 @@ func main() {
 	actionPlanService := actionplan.NewService(actionPlanRepo, projectService, taskService)
 	actionPlanHandler := actionplan.NewHandler(actionPlanService)
 
+	reportService := report.NewService(projectService, taskService)
+	reportHandler := report.NewHandler(reportService)
+
 	requireAuth := appmiddleware.RequireAuth(tokens)
 
 	app := fiber.New(fiber.Config{
@@ -79,6 +83,7 @@ func main() {
 	projectHandler.RegisterRoutes(api.Group("", requireAuth))
 	taskHandler.RegisterRoutes(api.Group("", requireAuth))
 	actionPlanHandler.RegisterRoutes(api.Group("", requireAuth))
+	reportHandler.RegisterRoutes(api.Group("", requireAuth))
 	realtime.RegisterRoute(app, tokens, projectService, hub)
 
 	log.Fatal(app.Listen(":" + cfg.Port))

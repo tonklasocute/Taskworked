@@ -704,6 +704,49 @@ func TestListAllResponses_NonMemberForbidden(t *testing.T) {
 	}
 }
 
+func TestUpdate_MovingToDoneSetsCompletedAt(t *testing.T) {
+	repo := newFakeRepository()
+	projSvc := newFakeProjectService()
+	svc := NewService(repo, projSvc, nil)
+
+	projectID := uuid.New()
+	reporter := uuid.New()
+	projSvc.addMember(projectID, reporter, false)
+	created, _ := svc.Create(context.Background(), reporter, auth.RoleEmployee, CreateRequest{ProjectID: projectID.String(), Title: "Set up CI"})
+
+	done := StatusDone
+	updated, err := svc.Update(context.Background(), reporter, auth.RoleEmployee, mustParse(t, created.ID), UpdateRequest{Status: &done})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if updated.CompletedAt == nil {
+		t.Fatal("expected completed_at to be set")
+	}
+}
+
+func TestUpdate_MovingAwayFromDoneClearsCompletedAt(t *testing.T) {
+	repo := newFakeRepository()
+	projSvc := newFakeProjectService()
+	svc := NewService(repo, projSvc, nil)
+
+	projectID := uuid.New()
+	reporter := uuid.New()
+	projSvc.addMember(projectID, reporter, false)
+	created, _ := svc.Create(context.Background(), reporter, auth.RoleEmployee, CreateRequest{ProjectID: projectID.String(), Title: "Set up CI"})
+
+	done := StatusDone
+	svc.Update(context.Background(), reporter, auth.RoleEmployee, mustParse(t, created.ID), UpdateRequest{Status: &done})
+
+	reopened := StatusDoing
+	updated, err := svc.Update(context.Background(), reporter, auth.RoleEmployee, mustParse(t, created.ID), UpdateRequest{Status: &reopened})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if updated.CompletedAt != nil {
+		t.Errorf("expected completed_at to be cleared, got %v", *updated.CompletedAt)
+	}
+}
+
 func mustParse(t *testing.T, s string) uuid.UUID {
 	t.Helper()
 	id, err := uuid.Parse(s)

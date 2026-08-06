@@ -51,6 +51,11 @@ type Task struct {
 	// convention, not this field. A task with MilestoneID unset is a
 	// normal, unplanned task and still shows up in every other view.
 	MilestoneID *uuid.UUID `gorm:"type:uuid;index"`
+	// CompletedAt is set automatically the moment Status transitions to
+	// StatusDone, and cleared if it's later moved away from Done (see
+	// service.Update). Reports rely on this instead of UpdatedAt, which
+	// changes on every edit and wouldn't reliably mean "finished".
+	CompletedAt *time.Time
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 }

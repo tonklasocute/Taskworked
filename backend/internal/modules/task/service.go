@@ -225,6 +225,12 @@ func (s *service) Update(ctx context.Context, actorID uuid.UUID, actorRole auth.
 		t.Priority = *req.Priority
 	}
 	if req.Status != nil {
+		if *req.Status == StatusDone && t.Status != StatusDone {
+			now := time.Now()
+			t.CompletedAt = &now
+		} else if *req.Status != StatusDone {
+			t.CompletedAt = nil
+		}
 		t.Status = *req.Status
 	}
 	if req.EstimateHours != nil {

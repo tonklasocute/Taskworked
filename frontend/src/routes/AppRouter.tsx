@@ -9,6 +9,7 @@ import KanbanBoard from "@/features/tasks/KanbanBoard";
 import CalendarPage from "@/features/tasks/CalendarPage";
 import GanttPage from "@/features/tasks/GanttPage";
 import ActionPlanPage from "@/features/actionplan/ActionPlanPage";
+import ReportsPage from "@/features/reports/ReportsPage";
 
 const router = createBrowserRouter([
   { path: "/login", element: <LoginPage /> },
@@ -23,6 +24,7 @@ const router = createBrowserRouter([
       { path: "/projects/:projectId/calendar", element: <CalendarPage /> },
       { path: "/projects/:projectId/gantt", element: <GanttPage /> },
       { path: "/projects/:projectId/action-plan", element: <ActionPlanPage /> },
+      { path: "/projects/:projectId/reports", element: <ReportsPage /> },
     ],
   },
   { path: "/", element: <Navigate to="/dashboard" replace /> },

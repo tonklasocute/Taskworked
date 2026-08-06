@@ -85,6 +85,7 @@ type Response struct {
 	// clients (the Calendar view) would have to strip back out.
 	StartDate     *string   `json:"start_date,omitempty"`
 	DueDate       *string   `json:"due_date,omitempty"`
+	CompletedAt   *string   `json:"completed_at,omitempty"`
 	EstimateHours *float64  `json:"estimate_hours,omitempty"`
 	AssigneeID    *string   `json:"assignee_id,omitempty"`
 	MilestoneID   *string   `json:"milestone_id,omitempty"`
@@ -137,6 +138,7 @@ func toResponse(t *Task, tags []string) Response {
 		Status:        t.Status,
 		StartDate:     formatDate(t.StartDate),
 		DueDate:       formatDate(t.DueDate),
+		CompletedAt:   formatDate(t.CompletedAt),
 		EstimateHours: t.EstimateHours,
 		AssigneeID:    assigneeID,
 		MilestoneID:   milestoneID,
