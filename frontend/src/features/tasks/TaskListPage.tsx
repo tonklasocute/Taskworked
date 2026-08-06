@@ -74,6 +74,9 @@ export default function TaskListPage() {
           <Link to={`/projects/${projectId}/gantt`}>
             <Button variant="outline">Gantt view</Button>
           </Link>
+          <Link to={`/projects/${projectId}/action-plan`}>
+            <Button variant="outline">Action Plan</Button>
+          </Link>
           <Button onClick={() => setShowForm((v) => !v)}>{showForm ? "Cancel" : "New Task"}</Button>
         </div>
       </div>

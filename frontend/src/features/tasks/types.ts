@@ -13,6 +13,7 @@ export interface Task {
   due_date?: string;
   estimate_hours?: number;
   assignee_id?: string;
+  milestone_id?: string;
   reporter_id: string;
   tags: string[];
   created_at: string;

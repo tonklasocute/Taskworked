@@ -9,6 +9,7 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/khomkrittk/taskworked/backend/internal/config"
 	appmiddleware "github.com/khomkrittk/taskworked/backend/internal/middleware"
+	"github.com/khomkrittk/taskworked/backend/internal/modules/actionplan"
 	"github.com/khomkrittk/taskworked/backend/internal/modules/auth"
 	"github.com/khomkrittk/taskworked/backend/internal/modules/project"
 	"github.com/khomkrittk/taskworked/backend/internal/modules/task"
@@ -28,6 +29,7 @@ func main() {
 		&auth.User{},
 		&project.Project{}, &project.Member{},
 		&task.Task{}, &task.ChecklistItem{}, &task.Tag{}, &task.Dependency{},
+		&actionplan.Goal{}, &actionplan.Milestone{},
 	); err != nil {
 		log.Fatalf("failed to run migrations: %v", err)
 	}
@@ -54,6 +56,10 @@ func main() {
 	taskService := task.NewService(taskRepo, projectService, publisher)
 	taskHandler := task.NewHandler(taskService)
 
+	actionPlanRepo := actionplan.NewRepository(db)
+	actionPlanService := actionplan.NewService(actionPlanRepo, projectService, taskService)
+	actionPlanHandler := actionplan.NewHandler(actionPlanService)
+
 	requireAuth := appmiddleware.RequireAuth(tokens)
 
 	app := fiber.New(fiber.Config{
@@ -72,6 +78,7 @@ func main() {
 	authHandler.RegisterRoutes(api, requireAuth)
 	projectHandler.RegisterRoutes(api.Group("", requireAuth))
 	taskHandler.RegisterRoutes(api.Group("", requireAuth))
+	actionPlanHandler.RegisterRoutes(api.Group("", requireAuth))
 	realtime.RegisterRoute(app, tokens, projectService, hub)
 
 	log.Fatal(app.Listen(":" + cfg.Port))
