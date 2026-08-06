@@ -669,6 +669,41 @@ func TestGetGanttView_NonMemberForbidden(t *testing.T) {
 	}
 }
 
+func TestListAllResponses_ReturnsAllProjectTasksForMember(t *testing.T) {
+	repo := newFakeRepository()
+	projSvc := newFakeProjectService()
+	svc := NewService(repo, projSvc, nil)
+
+	projectID := uuid.New()
+	reporter := uuid.New()
+	projSvc.addMember(projectID, reporter, false)
+
+	svc.Create(context.Background(), reporter, auth.RoleEmployee, CreateRequest{ProjectID: projectID.String(), Title: "A"})
+	svc.Create(context.Background(), reporter, auth.RoleEmployee, CreateRequest{ProjectID: projectID.String(), Title: "B"})
+
+	responses, err := svc.ListAllResponses(context.Background(), reporter, auth.RoleEmployee, projectID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(responses) != 2 {
+		t.Errorf("expected 2 tasks, got %d", len(responses))
+	}
+}
+
+func TestListAllResponses_NonMemberForbidden(t *testing.T) {
+	repo := newFakeRepository()
+	projSvc := newFakeProjectService()
+	svc := NewService(repo, projSvc, nil)
+
+	_, err := svc.ListAllResponses(context.Background(), uuid.New(), auth.RoleEmployee, uuid.New())
+	if err == nil {
+		t.Fatal("expected forbidden error, got nil")
+	}
+	if status := appErrStatus(t, err); status != 403 {
+		t.Errorf("expected 403, got %d", status)
+	}
+}
+
 func mustParse(t *testing.T, s string) uuid.UUID {
 	t.Helper()
 	id, err := uuid.Parse(s)

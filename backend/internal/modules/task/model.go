@@ -43,8 +43,16 @@ type Task struct {
 	EstimateHours *float64
 	AssigneeID    *uuid.UUID `gorm:"type:uuid;index"`
 	ReporterID    uuid.UUID  `gorm:"type:uuid;not null"`
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
+	// MilestoneID is optional and opt-in: it places this task under a
+	// Milestone in the Action Plan hierarchy (Goal -> Milestone -> Task ->
+	// Subtask, owned by the actionplan module). Not to be confused with
+	// the Gantt view's "milestone" rendering, which is just a zero-duration
+	// task (start_date == due_date) drawn as a diamond — that's a display
+	// convention, not this field. A task with MilestoneID unset is a
+	// normal, unplanned task and still shows up in every other view.
+	MilestoneID *uuid.UUID `gorm:"type:uuid;index"`
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 }
 
 type ChecklistItem struct {

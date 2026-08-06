@@ -12,6 +12,7 @@ type CreateRequest struct {
 	DueDate       *string  `json:"due_date" validate:"omitempty,datetime=2006-01-02"`
 	EstimateHours *float64 `json:"estimate_hours" validate:"omitempty,gte=0"`
 	AssigneeID    *string  `json:"assignee_id" validate:"omitempty,uuid"`
+	MilestoneID   *string  `json:"milestone_id" validate:"omitempty,uuid"`
 	Tags          []string `json:"tags" validate:"omitempty,dive,min=1,max=30"`
 }
 
@@ -24,6 +25,7 @@ type UpdateRequest struct {
 	DueDate       *string   `json:"due_date" validate:"omitempty,datetime=2006-01-02"`
 	EstimateHours *float64  `json:"estimate_hours" validate:"omitempty,gte=0"`
 	AssigneeID    *string   `json:"assignee_id" validate:"omitempty,uuid"`
+	MilestoneID   *string   `json:"milestone_id" validate:"omitempty,uuid"`
 }
 
 type AddChecklistItemRequest struct {
@@ -85,6 +87,7 @@ type Response struct {
 	DueDate       *string   `json:"due_date,omitempty"`
 	EstimateHours *float64  `json:"estimate_hours,omitempty"`
 	AssigneeID    *string   `json:"assignee_id,omitempty"`
+	MilestoneID   *string   `json:"milestone_id,omitempty"`
 	ReporterID    string    `json:"reporter_id"`
 	Tags          []string  `json:"tags"`
 	CreatedAt     time.Time `json:"created_at"`
@@ -115,6 +118,11 @@ func toResponse(t *Task, tags []string) Response {
 		s := t.AssigneeID.String()
 		assigneeID = &s
 	}
+	var milestoneID *string
+	if t.MilestoneID != nil {
+		s := t.MilestoneID.String()
+		milestoneID = &s
+	}
 	if tags == nil {
 		tags = []string{}
 	}
@@ -131,6 +139,7 @@ func toResponse(t *Task, tags []string) Response {
 		DueDate:       formatDate(t.DueDate),
 		EstimateHours: t.EstimateHours,
 		AssigneeID:    assigneeID,
+		MilestoneID:   milestoneID,
 		ReporterID:    t.ReporterID.String(),
 		Tags:          tags,
 		CreatedAt:     t.CreatedAt,

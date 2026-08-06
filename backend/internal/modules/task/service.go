@@ -28,6 +28,11 @@ type Service interface {
 	AddDependency(ctx context.Context, actorID uuid.UUID, actorRole auth.Role, taskID uuid.UUID, req AddDependencyRequest) error
 	RemoveDependency(ctx context.Context, actorID uuid.UUID, actorRole auth.Role, taskID, dependsOnID uuid.UUID) error
 	GetGanttView(ctx context.Context, actorID uuid.UUID, actorRole auth.Role, projectID uuid.UUID) (*GanttResponse, error)
+
+	// ListAllResponses returns every task in a project as Response DTOs
+	// (unpaginated), membership-checked. Shared by any module that needs
+	// a project's full task set — currently Gantt and Action Plan.
+	ListAllResponses(ctx context.Context, actorID uuid.UUID, actorRole auth.Role, projectID uuid.UUID) ([]Response, error)
 }
 
 // EventPublisher lets the service broadcast task changes over WebSocket
@@ -102,6 +107,18 @@ func (s *service) Create(ctx context.Context, actorID uuid.UUID, actorRole auth.
 		return nil, err
 	}
 
+	// MilestoneID is deliberately not cross-validated against the
+	// actionplan module here (that would require task -> actionplan
+	// import, and actionplan already depends on task for its hierarchy
+	// view — a cycle). The UI only ever offers milestones scoped to the
+	// current project, so a stray cross-project ID would only come from
+	// direct API misuse, not normal use, and it's still gated by the same
+	// edit permissions as everything else on the task.
+	milestoneID, err := parseOptionalUUID(req.MilestoneID)
+	if err != nil {
+		return nil, apperrors.BadRequest("invalid milestone_id")
+	}
+
 	priority := req.Priority
 	if priority == "" {
 		priority = PriorityMedium
@@ -117,6 +134,7 @@ func (s *service) Create(ctx context.Context, actorID uuid.UUID, actorRole auth.
 		StartDate:     startDate,
 		DueDate:       dueDate,
 		EstimateHours: req.EstimateHours,
+		MilestoneID:   milestoneID,
 		AssigneeID:    assigneeID,
 		ReporterID:    actorID,
 	}
@@ -235,6 +253,13 @@ func (s *service) Update(ctx context.Context, actorID uuid.UUID, actorRole auth.
 			return nil, err
 		}
 		t.AssigneeID = assigneeID
+	}
+	if req.MilestoneID != nil {
+		milestoneID, err := parseOptionalUUID(req.MilestoneID)
+		if err != nil {
+			return nil, apperrors.BadRequest("invalid milestone_id")
+		}
+		t.MilestoneID = milestoneID
 	}
 
 	if err := s.repo.Update(ctx, t); err != nil {
@@ -438,6 +463,27 @@ func (s *service) RemoveDependency(ctx context.Context, actorID uuid.UUID, actor
 	return nil
 }
 
+func (s *service) ListAllResponses(ctx context.Context, actorID uuid.UUID, actorRole auth.Role, projectID uuid.UUID) ([]Response, error) {
+	if err := s.requireMembership(ctx, actorID, actorRole, projectID); err != nil {
+		return nil, err
+	}
+
+	tasks, err := s.repo.ListAllForProject(ctx, projectID)
+	if err != nil {
+		return nil, apperrors.Internal("failed to load tasks")
+	}
+
+	responses := make([]Response, len(tasks))
+	for i := range tasks {
+		tags, err := s.repo.Tags(ctx, tasks[i].ID)
+		if err != nil {
+			return nil, apperrors.Internal("failed to load tags")
+		}
+		responses[i] = toResponse(&tasks[i], tags)
+	}
+	return responses, nil
+}
+
 func (s *service) GetGanttView(ctx context.Context, actorID uuid.UUID, actorRole auth.Role, projectID uuid.UUID) (*GanttResponse, error) {
 	if err := s.requireMembership(ctx, actorID, actorRole, projectID); err != nil {
 		return nil, err
@@ -575,4 +621,15 @@ func parseDateRange(startStr, dueStr *string) (start, due *time.Time, err error)
 		return nil, nil, apperrors.BadRequest("start_date must not be after due_date")
 	}
 	return start, due, nil
+}
+
+func parseOptionalUUID(s *string) (*uuid.UUID, error) {
+	if s == nil || *s == "" {
+		return nil, nil
+	}
+	id, err := uuid.Parse(*s)
+	if err != nil {
+		return nil, err
+	}
+	return &id, nil
 }
