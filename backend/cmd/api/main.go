@@ -9,6 +9,7 @@ import (
 	"github.com/khomkrittk/taskworked/backend/internal/config"
 	appmiddleware "github.com/khomkrittk/taskworked/backend/internal/middleware"
 	"github.com/khomkrittk/taskworked/backend/internal/modules/auth"
+	"github.com/khomkrittk/taskworked/backend/internal/modules/project"
 	"github.com/khomkrittk/taskworked/backend/internal/platform/cache"
 	"github.com/khomkrittk/taskworked/backend/internal/platform/database"
 )
@@ -20,7 +21,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to connect to database: %v", err)
 	}
-	if err := db.AutoMigrate(&auth.User{}); err != nil {
+	if err := db.AutoMigrate(&auth.User{}, &project.Project{}, &project.Member{}); err != nil {
 		log.Fatalf("failed to run migrations: %v", err)
 	}
 
@@ -30,6 +31,10 @@ func main() {
 	authRepo := auth.NewRepository(db)
 	authService := auth.NewService(authRepo, tokens)
 	authHandler := auth.NewHandler(authService)
+
+	projectRepo := project.NewRepository(db)
+	projectService := project.NewService(projectRepo)
+	projectHandler := project.NewHandler(projectService)
 
 	requireAuth := appmiddleware.RequireAuth(tokens)
 
@@ -47,6 +52,7 @@ func main() {
 
 	api := app.Group("/api/v1")
 	authHandler.RegisterRoutes(api, requireAuth)
+	projectHandler.RegisterRoutes(api.Group("", requireAuth))
 
 	log.Fatal(app.Listen(":" + cfg.Port))
 }

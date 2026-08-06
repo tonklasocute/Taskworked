@@ -23,7 +23,7 @@ func RequireAuth(tokens *auth.TokenService) fiber.Handler {
 		}
 
 		c.Locals("userID", claims.UserID)
-		c.Locals("role", claims.Role)
+		c.Locals("role", string(claims.Role))
 		return c.Next()
 	}
 }
@@ -37,8 +37,8 @@ func RequireRole(roles ...auth.Role) fiber.Handler {
 	}
 
 	return func(c *fiber.Ctx) error {
-		role, _ := c.Locals("role").(auth.Role)
-		if !allowed[role] {
+		role, _ := c.Locals("role").(string)
+		if !allowed[auth.Role(role)] {
 			return response.Err(c, fiber.StatusForbidden, "insufficient permissions")
 		}
 		return c.Next()
