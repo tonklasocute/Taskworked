@@ -24,3 +24,15 @@ export interface TaskListResponse {
   page: number;
   page_size: number;
 }
+
+export interface GanttDependency {
+  task_id: string;
+  depends_on_task_id: string;
+}
+
+export interface GanttView {
+  tasks: Task[];
+  dependencies: GanttDependency[];
+  critical_path: string[];
+  project_days: number;
+}

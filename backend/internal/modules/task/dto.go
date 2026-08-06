@@ -39,6 +39,25 @@ type SetTagsRequest struct {
 	Tags []string `json:"tags" validate:"required,dive,min=1,max=30"`
 }
 
+type AddDependencyRequest struct {
+	DependsOnTaskID string `json:"depends_on_task_id" validate:"required,uuid"`
+}
+
+type DependencyResponse struct {
+	TaskID          string `json:"task_id"`
+	DependsOnTaskID string `json:"depends_on_task_id"`
+}
+
+// GanttResponse is a read-model combining a project's tasks, their
+// dependency edges, and the computed critical path — everything the Gantt
+// view needs for one render.
+type GanttResponse struct {
+	Tasks        []Response           `json:"tasks"`
+	Dependencies []DependencyResponse `json:"dependencies"`
+	CriticalPath []string             `json:"critical_path"` // task IDs, in path order
+	ProjectDays  int                  `json:"project_days"`  // total span of the critical path, in days
+}
+
 type ListFilter struct {
 	ProjectID  string
 	Status     Status

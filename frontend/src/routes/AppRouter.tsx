@@ -7,6 +7,7 @@ import ProjectsPage from "@/features/projects/ProjectsPage";
 import TaskListPage from "@/features/tasks/TaskListPage";
 import KanbanBoard from "@/features/tasks/KanbanBoard";
 import CalendarPage from "@/features/tasks/CalendarPage";
+import GanttPage from "@/features/tasks/GanttPage";
 
 const router = createBrowserRouter([
   { path: "/login", element: <LoginPage /> },
@@ -19,6 +20,7 @@ const router = createBrowserRouter([
       { path: "/projects/:projectId", element: <TaskListPage /> },
       { path: "/projects/:projectId/board", element: <KanbanBoard /> },
       { path: "/projects/:projectId/calendar", element: <CalendarPage /> },
+      { path: "/projects/:projectId/gantt", element: <GanttPage /> },
     ],
   },
   { path: "/", element: <Navigate to="/dashboard" replace /> },

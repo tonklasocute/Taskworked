@@ -27,7 +27,7 @@ func main() {
 	if err := db.AutoMigrate(
 		&auth.User{},
 		&project.Project{}, &project.Member{},
-		&task.Task{}, &task.ChecklistItem{}, &task.Tag{},
+		&task.Task{}, &task.ChecklistItem{}, &task.Tag{}, &task.Dependency{},
 	); err != nil {
 		log.Fatalf("failed to run migrations: %v", err)
 	}

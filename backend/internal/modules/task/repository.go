@@ -25,6 +25,15 @@ type Repository interface {
 	DeleteChecklistItem(ctx context.Context, id uuid.UUID) error
 	FindChecklistItem(ctx context.Context, id uuid.UUID) (*ChecklistItem, error)
 	ListChecklistItems(ctx context.Context, taskID uuid.UUID) ([]ChecklistItem, error)
+
+	// ListAllForProject returns every task in a project, unpaginated —
+	// used by the Gantt view, which needs the whole graph to compute the
+	// critical path.
+	ListAllForProject(ctx context.Context, projectID uuid.UUID) ([]Task, error)
+
+	AddDependency(ctx context.Context, d *Dependency) error
+	RemoveDependency(ctx context.Context, taskID, dependsOnID uuid.UUID) error
+	ListDependenciesForProject(ctx context.Context, projectID uuid.UUID) ([]Dependency, error)
 }
 
 type repository struct {
@@ -147,4 +156,27 @@ func (r *repository) ListChecklistItems(ctx context.Context, taskID uuid.UUID) (
 	var items []ChecklistItem
 	err := r.db.WithContext(ctx).Where("task_id = ?", taskID).Order("position ASC, created_at ASC").Find(&items).Error
 	return items, err
+}
+
+func (r *repository) ListAllForProject(ctx context.Context, projectID uuid.UUID) ([]Task, error) {
+	var tasks []Task
+	err := r.db.WithContext(ctx).Where("project_id = ?", projectID).Order("created_at ASC").Find(&tasks).Error
+	return tasks, err
+}
+
+func (r *repository) AddDependency(ctx context.Context, d *Dependency) error {
+	return r.db.WithContext(ctx).Create(d).Error
+}
+
+func (r *repository) RemoveDependency(ctx context.Context, taskID, dependsOnID uuid.UUID) error {
+	return r.db.WithContext(ctx).Delete(&Dependency{}, "task_id = ? AND depends_on_id = ?", taskID, dependsOnID).Error
+}
+
+func (r *repository) ListDependenciesForProject(ctx context.Context, projectID uuid.UUID) ([]Dependency, error) {
+	var deps []Dependency
+	err := r.db.WithContext(ctx).
+		Joins("JOIN tasks ON tasks.id = dependencies.task_id").
+		Where("tasks.project_id = ?", projectID).
+		Find(&deps).Error
+	return deps, err
 }

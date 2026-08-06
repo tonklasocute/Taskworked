@@ -2,6 +2,7 @@ package task
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/google/uuid"
@@ -63,9 +64,10 @@ func (f *fakeProjectService) RemoveMember(context.Context, uuid.UUID, auth.Role,
 
 // fakeRepository is an in-memory stand-in for task.Repository.
 type fakeRepository struct {
-	tasks     map[uuid.UUID]*Task
-	tags      map[uuid.UUID][]string
-	checklist map[uuid.UUID]*ChecklistItem
+	tasks        map[uuid.UUID]*Task
+	tags         map[uuid.UUID][]string
+	checklist    map[uuid.UUID]*ChecklistItem
+	dependencies []Dependency
 }
 
 func newFakeRepository() *fakeRepository {
@@ -151,6 +153,46 @@ func (f *fakeRepository) ListChecklistItems(_ context.Context, taskID uuid.UUID)
 		}
 	}
 	return items, nil
+}
+
+func (f *fakeRepository) ListAllForProject(_ context.Context, projectID uuid.UUID) ([]Task, error) {
+	var result []Task
+	for _, t := range f.tasks {
+		if t.ProjectID == projectID {
+			result = append(result, *t)
+		}
+	}
+	return result, nil
+}
+
+func (f *fakeRepository) AddDependency(_ context.Context, d *Dependency) error {
+	for _, existing := range f.dependencies {
+		if existing.TaskID == d.TaskID && existing.DependsOnID == d.DependsOnID {
+			return errors.New("dependency already exists")
+		}
+	}
+	f.dependencies = append(f.dependencies, *d)
+	return nil
+}
+
+func (f *fakeRepository) RemoveDependency(_ context.Context, taskID, dependsOnID uuid.UUID) error {
+	for i, d := range f.dependencies {
+		if d.TaskID == taskID && d.DependsOnID == dependsOnID {
+			f.dependencies = append(f.dependencies[:i], f.dependencies[i+1:]...)
+			return nil
+		}
+	}
+	return nil
+}
+
+func (f *fakeRepository) ListDependenciesForProject(_ context.Context, projectID uuid.UUID) ([]Dependency, error) {
+	var result []Dependency
+	for _, d := range f.dependencies {
+		if task, ok := f.tasks[d.TaskID]; ok && task.ProjectID == projectID {
+			result = append(result, d)
+		}
+	}
+	return result, nil
 }
 
 func appErrStatus(t *testing.T, err error) int {
@@ -461,6 +503,169 @@ func TestUpdate_ValidStartAndDueDateSpanIsAccepted(t *testing.T) {
 	}
 	if *updated.StartDate != start || *updated.DueDate != due {
 		t.Errorf("expected start_date=%q due_date=%q, got start=%q due=%q", start, due, *updated.StartDate, *updated.DueDate)
+	}
+}
+
+func TestAddDependency_Success(t *testing.T) {
+	repo := newFakeRepository()
+	projSvc := newFakeProjectService()
+	svc := NewService(repo, projSvc, nil)
+
+	projectID := uuid.New()
+	reporter := uuid.New()
+	projSvc.addMember(projectID, reporter, false)
+
+	a, _ := svc.Create(context.Background(), reporter, auth.RoleEmployee, CreateRequest{ProjectID: projectID.String(), Title: "A"})
+	b, _ := svc.Create(context.Background(), reporter, auth.RoleEmployee, CreateRequest{ProjectID: projectID.String(), Title: "B"})
+
+	err := svc.AddDependency(context.Background(), reporter, auth.RoleEmployee, mustParse(t, b.ID), AddDependencyRequest{DependsOnTaskID: a.ID})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	deps, err := repo.ListDependenciesForProject(context.Background(), projectID)
+	if err != nil || len(deps) != 1 {
+		t.Fatalf("expected 1 dependency, got %v (err=%v)", deps, err)
+	}
+}
+
+func TestAddDependency_SelfDependencyRejected(t *testing.T) {
+	repo := newFakeRepository()
+	projSvc := newFakeProjectService()
+	svc := NewService(repo, projSvc, nil)
+
+	projectID := uuid.New()
+	reporter := uuid.New()
+	projSvc.addMember(projectID, reporter, false)
+	a, _ := svc.Create(context.Background(), reporter, auth.RoleEmployee, CreateRequest{ProjectID: projectID.String(), Title: "A"})
+
+	err := svc.AddDependency(context.Background(), reporter, auth.RoleEmployee, mustParse(t, a.ID), AddDependencyRequest{DependsOnTaskID: a.ID})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if status := appErrStatus(t, err); status != 400 {
+		t.Errorf("expected 400, got %d", status)
+	}
+}
+
+func TestAddDependency_CrossProjectRejected(t *testing.T) {
+	repo := newFakeRepository()
+	projSvc := newFakeProjectService()
+	svc := NewService(repo, projSvc, nil)
+
+	projectA, projectB := uuid.New(), uuid.New()
+	reporter := uuid.New()
+	projSvc.addMember(projectA, reporter, false)
+	projSvc.addMember(projectB, reporter, false)
+
+	a, _ := svc.Create(context.Background(), reporter, auth.RoleEmployee, CreateRequest{ProjectID: projectA.String(), Title: "A"})
+	b, _ := svc.Create(context.Background(), reporter, auth.RoleEmployee, CreateRequest{ProjectID: projectB.String(), Title: "B"})
+
+	err := svc.AddDependency(context.Background(), reporter, auth.RoleEmployee, mustParse(t, b.ID), AddDependencyRequest{DependsOnTaskID: a.ID})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if status := appErrStatus(t, err); status != 400 {
+		t.Errorf("expected 400, got %d", status)
+	}
+}
+
+func TestAddDependency_CycleRejected(t *testing.T) {
+	repo := newFakeRepository()
+	projSvc := newFakeProjectService()
+	svc := NewService(repo, projSvc, nil)
+
+	projectID := uuid.New()
+	reporter := uuid.New()
+	projSvc.addMember(projectID, reporter, false)
+
+	a, _ := svc.Create(context.Background(), reporter, auth.RoleEmployee, CreateRequest{ProjectID: projectID.String(), Title: "A"})
+	b, _ := svc.Create(context.Background(), reporter, auth.RoleEmployee, CreateRequest{ProjectID: projectID.String(), Title: "B"})
+
+	// B depends on A.
+	if err := svc.AddDependency(context.Background(), reporter, auth.RoleEmployee, mustParse(t, b.ID), AddDependencyRequest{DependsOnTaskID: a.ID}); err != nil {
+		t.Fatalf("unexpected error setting up B->A: %v", err)
+	}
+
+	// Now try to make A depend on B — would close the loop.
+	err := svc.AddDependency(context.Background(), reporter, auth.RoleEmployee, mustParse(t, a.ID), AddDependencyRequest{DependsOnTaskID: b.ID})
+	if err == nil {
+		t.Fatal("expected cycle error, got nil")
+	}
+	if status := appErrStatus(t, err); status != 400 {
+		t.Errorf("expected 400, got %d", status)
+	}
+}
+
+func TestAddDependency_ByNonEditorForbidden(t *testing.T) {
+	repo := newFakeRepository()
+	projSvc := newFakeProjectService()
+	svc := NewService(repo, projSvc, nil)
+
+	projectID := uuid.New()
+	reporter := uuid.New()
+	bystander := uuid.New()
+	projSvc.addMember(projectID, reporter, false)
+	projSvc.addMember(projectID, bystander, false)
+
+	a, _ := svc.Create(context.Background(), reporter, auth.RoleEmployee, CreateRequest{ProjectID: projectID.String(), Title: "A"})
+	b, _ := svc.Create(context.Background(), reporter, auth.RoleEmployee, CreateRequest{ProjectID: projectID.String(), Title: "B"})
+
+	err := svc.AddDependency(context.Background(), bystander, auth.RoleEmployee, mustParse(t, b.ID), AddDependencyRequest{DependsOnTaskID: a.ID})
+	if err == nil {
+		t.Fatal("expected forbidden error, got nil")
+	}
+	if status := appErrStatus(t, err); status != 403 {
+		t.Errorf("expected 403, got %d", status)
+	}
+}
+
+func TestGetGanttView_ReturnsTasksDepsAndCriticalPath(t *testing.T) {
+	repo := newFakeRepository()
+	projSvc := newFakeProjectService()
+	svc := NewService(repo, projSvc, nil)
+
+	projectID := uuid.New()
+	reporter := uuid.New()
+	projSvc.addMember(projectID, reporter, false)
+
+	start, due := "2026-08-01", "2026-08-03"
+	a, _ := svc.Create(context.Background(), reporter, auth.RoleEmployee, CreateRequest{ProjectID: projectID.String(), Title: "A", StartDate: &start, DueDate: &due})
+	b, _ := svc.Create(context.Background(), reporter, auth.RoleEmployee, CreateRequest{ProjectID: projectID.String(), Title: "B", StartDate: &due, DueDate: &due})
+
+	if err := svc.AddDependency(context.Background(), reporter, auth.RoleEmployee, mustParse(t, b.ID), AddDependencyRequest{DependsOnTaskID: a.ID}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	view, err := svc.GetGanttView(context.Background(), reporter, auth.RoleEmployee, projectID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(view.Tasks) != 2 {
+		t.Errorf("expected 2 tasks, got %d", len(view.Tasks))
+	}
+	if len(view.Dependencies) != 1 {
+		t.Errorf("expected 1 dependency, got %d", len(view.Dependencies))
+	}
+	if len(view.CriticalPath) != 2 || view.CriticalPath[0] != a.ID || view.CriticalPath[1] != b.ID {
+		t.Errorf("expected critical path [A, B], got %v", view.CriticalPath)
+	}
+}
+
+func TestGetGanttView_NonMemberForbidden(t *testing.T) {
+	repo := newFakeRepository()
+	projSvc := newFakeProjectService()
+	svc := NewService(repo, projSvc, nil)
+
+	projectID := uuid.New()
+	outsider := uuid.New()
+
+	_, err := svc.GetGanttView(context.Background(), outsider, auth.RoleEmployee, projectID)
+	if err == nil {
+		t.Fatal("expected forbidden error, got nil")
+	}
+	if status := appErrStatus(t, err); status != 403 {
+		t.Errorf("expected 403, got %d", status)
 	}
 }
 

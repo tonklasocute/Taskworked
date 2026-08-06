@@ -60,3 +60,13 @@ type Tag struct {
 	TaskID uuid.UUID `gorm:"type:uuid;primaryKey"`
 	Tag    string    `gorm:"primaryKey"`
 }
+
+// Dependency is a finish-to-start dependency for the Gantt view: TaskID
+// (the successor) cannot start until DependsOnID (the predecessor)
+// finishes. Other dependency types (start-to-start, etc.) aren't modeled —
+// FS covers the overwhelming majority of real-world usage.
+type Dependency struct {
+	TaskID      uuid.UUID `gorm:"type:uuid;primaryKey"`
+	DependsOnID uuid.UUID `gorm:"type:uuid;primaryKey"`
+	CreatedAt   time.Time
+}

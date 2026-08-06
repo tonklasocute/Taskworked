@@ -33,6 +33,11 @@ func (h *Handler) RegisterRoutes(router fiber.Router) {
 	r.Post("/:id/checklist", h.addChecklistItem)
 	r.Patch("/:id/checklist/:itemId", h.updateChecklistItem)
 	r.Delete("/:id/checklist/:itemId", h.deleteChecklistItem)
+
+	r.Post("/:id/dependencies", h.addDependency)
+	r.Delete("/:id/dependencies/:dependsOnId", h.removeDependency)
+
+	router.Get("/projects/:id/gantt", h.ganttView)
 }
 
 func (h *Handler) create(c *fiber.Ctx) error {
@@ -262,4 +267,68 @@ func (h *Handler) deleteChecklistItem(c *fiber.Ctx) error {
 		return httpctx.WriteErr(c, err)
 	}
 	return response.OK(c, fiber.Map{"message": "checklist item deleted"})
+}
+
+func (h *Handler) addDependency(c *fiber.Ctx) error {
+	id, err := uuid.Parse(c.Params("id"))
+	if err != nil {
+		return response.Err(c, fiber.StatusBadRequest, "invalid task id")
+	}
+
+	var req AddDependencyRequest
+	if err := c.BodyParser(&req); err != nil {
+		return response.Err(c, fiber.StatusBadRequest, "invalid request body")
+	}
+	if err := h.validate.Struct(req); err != nil {
+		return response.Err(c, fiber.StatusBadRequest, err.Error())
+	}
+
+	actorID, err := httpctx.ActorID(c)
+	if err != nil {
+		return httpctx.WriteErr(c, err)
+	}
+
+	if err := h.service.AddDependency(c.Context(), actorID, auth.Role(httpctx.ActorRole(c)), id, req); err != nil {
+		return httpctx.WriteErr(c, err)
+	}
+	return response.Created(c, fiber.Map{"message": "dependency added"})
+}
+
+func (h *Handler) removeDependency(c *fiber.Ctx) error {
+	id, err := uuid.Parse(c.Params("id"))
+	if err != nil {
+		return response.Err(c, fiber.StatusBadRequest, "invalid task id")
+	}
+	dependsOnID, err := uuid.Parse(c.Params("dependsOnId"))
+	if err != nil {
+		return response.Err(c, fiber.StatusBadRequest, "invalid depends_on_task_id")
+	}
+
+	actorID, err := httpctx.ActorID(c)
+	if err != nil {
+		return httpctx.WriteErr(c, err)
+	}
+
+	if err := h.service.RemoveDependency(c.Context(), actorID, auth.Role(httpctx.ActorRole(c)), id, dependsOnID); err != nil {
+		return httpctx.WriteErr(c, err)
+	}
+	return response.OK(c, fiber.Map{"message": "dependency removed"})
+}
+
+func (h *Handler) ganttView(c *fiber.Ctx) error {
+	projectID, err := uuid.Parse(c.Params("id"))
+	if err != nil {
+		return response.Err(c, fiber.StatusBadRequest, "invalid project id")
+	}
+
+	actorID, err := httpctx.ActorID(c)
+	if err != nil {
+		return httpctx.WriteErr(c, err)
+	}
+
+	result, err := h.service.GetGanttView(c.Context(), actorID, auth.Role(httpctx.ActorRole(c)), projectID)
+	if err != nil {
+		return httpctx.WriteErr(c, err)
+	}
+	return response.OK(c, result)
 }

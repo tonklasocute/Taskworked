@@ -1,5 +1,5 @@
 import { api } from "@/lib/api";
-import type { Task, TaskListResponse, TaskPriority, TaskStatus } from "@/features/tasks/types";
+import type { GanttView, Task, TaskListResponse, TaskPriority, TaskStatus } from "@/features/tasks/types";
 
 export function listTasks(projectId: string, filters?: { status?: TaskStatus; assignee_id?: string }) {
   return api
@@ -17,4 +17,16 @@ export function updateTaskStatus(id: string, status: TaskStatus) {
 
 export function updateTaskDates(id: string, dates: { start_date?: string; due_date?: string }) {
   return api.patch<{ data: Task }>(`/tasks/${id}`, dates).then((r) => r.data.data);
+}
+
+export function getGanttView(projectId: string) {
+  return api.get<{ data: GanttView }>(`/projects/${projectId}/gantt`).then((r) => r.data.data);
+}
+
+export function addDependency(taskId: string, dependsOnTaskId: string) {
+  return api.post(`/tasks/${taskId}/dependencies`, { depends_on_task_id: dependsOnTaskId });
+}
+
+export function removeDependency(taskId: string, dependsOnTaskId: string) {
+  return api.delete(`/tasks/${taskId}/dependencies/${dependsOnTaskId}`);
 }

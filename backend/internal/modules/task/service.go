@@ -24,6 +24,10 @@ type Service interface {
 	UpdateChecklistItem(ctx context.Context, actorID uuid.UUID, actorRole auth.Role, taskID, itemID uuid.UUID, req UpdateChecklistItemRequest) (*ChecklistItemResponse, error)
 	DeleteChecklistItem(ctx context.Context, actorID uuid.UUID, actorRole auth.Role, taskID, itemID uuid.UUID) error
 	ListChecklistItems(ctx context.Context, actorID uuid.UUID, actorRole auth.Role, taskID uuid.UUID) ([]ChecklistItemResponse, error)
+
+	AddDependency(ctx context.Context, actorID uuid.UUID, actorRole auth.Role, taskID uuid.UUID, req AddDependencyRequest) error
+	RemoveDependency(ctx context.Context, actorID uuid.UUID, actorRole auth.Role, taskID, dependsOnID uuid.UUID) error
+	GetGanttView(ctx context.Context, actorID uuid.UUID, actorRole auth.Role, projectID uuid.UUID) (*GanttResponse, error)
 }
 
 // EventPublisher lets the service broadcast task changes over WebSocket
@@ -374,6 +378,112 @@ func (s *service) ListChecklistItems(ctx context.Context, actorID uuid.UUID, act
 		resp[i] = toChecklistResponse(&items[i])
 	}
 	return resp, nil
+}
+
+func (s *service) AddDependency(ctx context.Context, actorID uuid.UUID, actorRole auth.Role, taskID uuid.UUID, req AddDependencyRequest) error {
+	t, err := s.repo.FindByID(ctx, taskID)
+	if err != nil {
+		return notFoundOrInternal(err)
+	}
+	if err := s.requireCanEdit(ctx, actorID, actorRole, t); err != nil {
+		return err
+	}
+
+	dependsOnID, err := uuid.Parse(req.DependsOnTaskID)
+	if err != nil {
+		return apperrors.BadRequest("invalid depends_on_task_id")
+	}
+	if dependsOnID == taskID {
+		return apperrors.BadRequest("a task cannot depend on itself")
+	}
+
+	dependsOn, err := s.repo.FindByID(ctx, dependsOnID)
+	if err != nil {
+		return apperrors.BadRequest("depends_on_task_id not found")
+	}
+	if dependsOn.ProjectID != t.ProjectID {
+		return apperrors.BadRequest("dependencies must be within the same project")
+	}
+
+	existing, err := s.repo.ListDependenciesForProject(ctx, t.ProjectID)
+	if err != nil {
+		return apperrors.Internal("failed to load existing dependencies")
+	}
+	successors := make(map[uuid.UUID][]uuid.UUID, len(existing))
+	for _, d := range existing {
+		successors[d.DependsOnID] = append(successors[d.DependsOnID], d.TaskID)
+	}
+	if canReach(successors, taskID, dependsOnID) {
+		return apperrors.BadRequest("this dependency would create a cycle")
+	}
+
+	if err := s.repo.AddDependency(ctx, &Dependency{TaskID: taskID, DependsOnID: dependsOnID}); err != nil {
+		return apperrors.Conflict("dependency already exists")
+	}
+	return nil
+}
+
+func (s *service) RemoveDependency(ctx context.Context, actorID uuid.UUID, actorRole auth.Role, taskID, dependsOnID uuid.UUID) error {
+	t, err := s.repo.FindByID(ctx, taskID)
+	if err != nil {
+		return notFoundOrInternal(err)
+	}
+	if err := s.requireCanEdit(ctx, actorID, actorRole, t); err != nil {
+		return err
+	}
+
+	if err := s.repo.RemoveDependency(ctx, taskID, dependsOnID); err != nil {
+		return apperrors.Internal("failed to remove dependency")
+	}
+	return nil
+}
+
+func (s *service) GetGanttView(ctx context.Context, actorID uuid.UUID, actorRole auth.Role, projectID uuid.UUID) (*GanttResponse, error) {
+	if err := s.requireMembership(ctx, actorID, actorRole, projectID); err != nil {
+		return nil, err
+	}
+
+	tasks, err := s.repo.ListAllForProject(ctx, projectID)
+	if err != nil {
+		return nil, apperrors.Internal("failed to load tasks")
+	}
+	deps, err := s.repo.ListDependenciesForProject(ctx, projectID)
+	if err != nil {
+		return nil, apperrors.Internal("failed to load dependencies")
+	}
+
+	taskResponses := make([]Response, len(tasks))
+	for i := range tasks {
+		tags, err := s.repo.Tags(ctx, tasks[i].ID)
+		if err != nil {
+			return nil, apperrors.Internal("failed to load tags")
+		}
+		taskResponses[i] = toResponse(&tasks[i], tags)
+	}
+
+	depResponses := make([]DependencyResponse, len(deps))
+	for i, d := range deps {
+		depResponses[i] = DependencyResponse{TaskID: d.TaskID.String(), DependsOnTaskID: d.DependsOnID.String()}
+	}
+
+	criticalPath, projectDays, err := computeCriticalPath(tasks, deps)
+	if err != nil {
+		// A cycle here means data got into an inconsistent state outside
+		// AddDependency's own cycle check (e.g. a since-removed guard) —
+		// still render the board, just without a critical path.
+		criticalPath, projectDays = nil, 0
+	}
+	criticalPathIDs := make([]string, len(criticalPath))
+	for i, id := range criticalPath {
+		criticalPathIDs[i] = id.String()
+	}
+
+	return &GanttResponse{
+		Tasks:        taskResponses,
+		Dependencies: depResponses,
+		CriticalPath: criticalPathIDs,
+		ProjectDays:  projectDays,
+	}, nil
 }
 
 // requireMembership allows any project member (or org admin) to read.
