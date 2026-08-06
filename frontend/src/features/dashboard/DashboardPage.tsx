@@ -20,6 +20,9 @@ export default function DashboardPage() {
           <Link to="/team">
             <Button variant="outline">Team</Button>
           </Link>
+          <Link to="/gamification">
+            <Button variant="outline">Gamification</Button>
+          </Link>
           <Button
             variant="outline"
             onClick={async () => {

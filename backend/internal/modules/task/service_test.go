@@ -243,7 +243,7 @@ func appErrStatus(t *testing.T, err error) int {
 func TestCreate_MemberCanCreateTaskAsReporter(t *testing.T) {
 	repo := newFakeRepository()
 	projSvc := newFakeProjectService()
-	svc := NewService(repo, projSvc, nil, nil)
+	svc := NewService(repo, projSvc, nil, nil, nil)
 
 	projectID := uuid.New()
 	member := uuid.New()
@@ -270,7 +270,7 @@ func TestCreate_MemberCanCreateTaskAsReporter(t *testing.T) {
 func TestCreate_NonMemberIsForbidden(t *testing.T) {
 	repo := newFakeRepository()
 	projSvc := newFakeProjectService()
-	svc := NewService(repo, projSvc, nil, nil)
+	svc := NewService(repo, projSvc, nil, nil, nil)
 
 	projectID := uuid.New()
 	outsider := uuid.New()
@@ -290,7 +290,7 @@ func TestCreate_NonMemberIsForbidden(t *testing.T) {
 func TestCreate_AssigneeMustBeProjectMember(t *testing.T) {
 	repo := newFakeRepository()
 	projSvc := newFakeProjectService()
-	svc := NewService(repo, projSvc, nil, nil)
+	svc := NewService(repo, projSvc, nil, nil, nil)
 
 	projectID := uuid.New()
 	reporter := uuid.New()
@@ -314,7 +314,7 @@ func TestCreate_AssigneeMustBeProjectMember(t *testing.T) {
 func TestCreate_ParentTaskMustBeSameProject(t *testing.T) {
 	repo := newFakeRepository()
 	projSvc := newFakeProjectService()
-	svc := NewService(repo, projSvc, nil, nil)
+	svc := NewService(repo, projSvc, nil, nil, nil)
 
 	projectA := uuid.New()
 	projectB := uuid.New()
@@ -346,7 +346,7 @@ func TestCreate_ParentTaskMustBeSameProject(t *testing.T) {
 func TestUpdate_PlainMemberCannotEditOthersTask(t *testing.T) {
 	repo := newFakeRepository()
 	projSvc := newFakeProjectService()
-	svc := NewService(repo, projSvc, nil, nil)
+	svc := NewService(repo, projSvc, nil, nil, nil)
 
 	projectID := uuid.New()
 	reporter := uuid.New()
@@ -372,7 +372,7 @@ func TestUpdate_PlainMemberCannotEditOthersTask(t *testing.T) {
 func TestUpdate_AssigneeCanEdit(t *testing.T) {
 	repo := newFakeRepository()
 	projSvc := newFakeProjectService()
-	svc := NewService(repo, projSvc, nil, nil)
+	svc := NewService(repo, projSvc, nil, nil, nil)
 
 	projectID := uuid.New()
 	reporter := uuid.New()
@@ -403,7 +403,7 @@ func TestUpdate_AssigneeCanEdit(t *testing.T) {
 func TestUpdate_ProjectManagerCanEditAnyTask(t *testing.T) {
 	repo := newFakeRepository()
 	projSvc := newFakeProjectService()
-	svc := NewService(repo, projSvc, nil, nil)
+	svc := NewService(repo, projSvc, nil, nil, nil)
 
 	projectID := uuid.New()
 	reporter := uuid.New()
@@ -429,7 +429,7 @@ func TestUpdate_ProjectManagerCanEditAnyTask(t *testing.T) {
 func TestDelete_OnlyReporterOrManagerCanDelete(t *testing.T) {
 	repo := newFakeRepository()
 	projSvc := newFakeProjectService()
-	svc := NewService(repo, projSvc, nil, nil)
+	svc := NewService(repo, projSvc, nil, nil, nil)
 
 	projectID := uuid.New()
 	reporter := uuid.New()
@@ -458,7 +458,7 @@ func TestDelete_OnlyReporterOrManagerCanDelete(t *testing.T) {
 func TestCreate_StartDateAfterDueDateIsRejected(t *testing.T) {
 	repo := newFakeRepository()
 	projSvc := newFakeProjectService()
-	svc := NewService(repo, projSvc, nil, nil)
+	svc := NewService(repo, projSvc, nil, nil, nil)
 
 	projectID := uuid.New()
 	reporter := uuid.New()
@@ -483,7 +483,7 @@ func TestCreate_StartDateAfterDueDateIsRejected(t *testing.T) {
 func TestUpdate_StartDateAfterExistingDueDateIsRejected(t *testing.T) {
 	repo := newFakeRepository()
 	projSvc := newFakeProjectService()
-	svc := NewService(repo, projSvc, nil, nil)
+	svc := NewService(repo, projSvc, nil, nil, nil)
 
 	projectID := uuid.New()
 	reporter := uuid.New()
@@ -512,7 +512,7 @@ func TestUpdate_StartDateAfterExistingDueDateIsRejected(t *testing.T) {
 func TestUpdate_ValidStartAndDueDateSpanIsAccepted(t *testing.T) {
 	repo := newFakeRepository()
 	projSvc := newFakeProjectService()
-	svc := NewService(repo, projSvc, nil, nil)
+	svc := NewService(repo, projSvc, nil, nil, nil)
 
 	projectID := uuid.New()
 	reporter := uuid.New()
@@ -543,7 +543,7 @@ func TestUpdate_ValidStartAndDueDateSpanIsAccepted(t *testing.T) {
 func TestAddDependency_Success(t *testing.T) {
 	repo := newFakeRepository()
 	projSvc := newFakeProjectService()
-	svc := NewService(repo, projSvc, nil, nil)
+	svc := NewService(repo, projSvc, nil, nil, nil)
 
 	projectID := uuid.New()
 	reporter := uuid.New()
@@ -566,7 +566,7 @@ func TestAddDependency_Success(t *testing.T) {
 func TestAddDependency_SelfDependencyRejected(t *testing.T) {
 	repo := newFakeRepository()
 	projSvc := newFakeProjectService()
-	svc := NewService(repo, projSvc, nil, nil)
+	svc := NewService(repo, projSvc, nil, nil, nil)
 
 	projectID := uuid.New()
 	reporter := uuid.New()
@@ -585,7 +585,7 @@ func TestAddDependency_SelfDependencyRejected(t *testing.T) {
 func TestAddDependency_CrossProjectRejected(t *testing.T) {
 	repo := newFakeRepository()
 	projSvc := newFakeProjectService()
-	svc := NewService(repo, projSvc, nil, nil)
+	svc := NewService(repo, projSvc, nil, nil, nil)
 
 	projectA, projectB := uuid.New(), uuid.New()
 	reporter := uuid.New()
@@ -607,7 +607,7 @@ func TestAddDependency_CrossProjectRejected(t *testing.T) {
 func TestAddDependency_CycleRejected(t *testing.T) {
 	repo := newFakeRepository()
 	projSvc := newFakeProjectService()
-	svc := NewService(repo, projSvc, nil, nil)
+	svc := NewService(repo, projSvc, nil, nil, nil)
 
 	projectID := uuid.New()
 	reporter := uuid.New()
@@ -634,7 +634,7 @@ func TestAddDependency_CycleRejected(t *testing.T) {
 func TestAddDependency_ByNonEditorForbidden(t *testing.T) {
 	repo := newFakeRepository()
 	projSvc := newFakeProjectService()
-	svc := NewService(repo, projSvc, nil, nil)
+	svc := NewService(repo, projSvc, nil, nil, nil)
 
 	projectID := uuid.New()
 	reporter := uuid.New()
@@ -657,7 +657,7 @@ func TestAddDependency_ByNonEditorForbidden(t *testing.T) {
 func TestGetGanttView_ReturnsTasksDepsAndCriticalPath(t *testing.T) {
 	repo := newFakeRepository()
 	projSvc := newFakeProjectService()
-	svc := NewService(repo, projSvc, nil, nil)
+	svc := NewService(repo, projSvc, nil, nil, nil)
 
 	projectID := uuid.New()
 	reporter := uuid.New()
@@ -689,7 +689,7 @@ func TestGetGanttView_ReturnsTasksDepsAndCriticalPath(t *testing.T) {
 func TestGetGanttView_NonMemberForbidden(t *testing.T) {
 	repo := newFakeRepository()
 	projSvc := newFakeProjectService()
-	svc := NewService(repo, projSvc, nil, nil)
+	svc := NewService(repo, projSvc, nil, nil, nil)
 
 	projectID := uuid.New()
 	outsider := uuid.New()
@@ -706,7 +706,7 @@ func TestGetGanttView_NonMemberForbidden(t *testing.T) {
 func TestListAllResponses_ReturnsAllProjectTasksForMember(t *testing.T) {
 	repo := newFakeRepository()
 	projSvc := newFakeProjectService()
-	svc := NewService(repo, projSvc, nil, nil)
+	svc := NewService(repo, projSvc, nil, nil, nil)
 
 	projectID := uuid.New()
 	reporter := uuid.New()
@@ -727,7 +727,7 @@ func TestListAllResponses_ReturnsAllProjectTasksForMember(t *testing.T) {
 func TestListAllResponses_NonMemberForbidden(t *testing.T) {
 	repo := newFakeRepository()
 	projSvc := newFakeProjectService()
-	svc := NewService(repo, projSvc, nil, nil)
+	svc := NewService(repo, projSvc, nil, nil, nil)
 
 	_, err := svc.ListAllResponses(context.Background(), uuid.New(), auth.RoleEmployee, uuid.New())
 	if err == nil {
@@ -741,7 +741,7 @@ func TestListAllResponses_NonMemberForbidden(t *testing.T) {
 func TestUpdate_MovingToDoneSetsCompletedAt(t *testing.T) {
 	repo := newFakeRepository()
 	projSvc := newFakeProjectService()
-	svc := NewService(repo, projSvc, nil, nil)
+	svc := NewService(repo, projSvc, nil, nil, nil)
 
 	projectID := uuid.New()
 	reporter := uuid.New()
@@ -761,7 +761,7 @@ func TestUpdate_MovingToDoneSetsCompletedAt(t *testing.T) {
 func TestUpdate_MovingAwayFromDoneClearsCompletedAt(t *testing.T) {
 	repo := newFakeRepository()
 	projSvc := newFakeProjectService()
-	svc := NewService(repo, projSvc, nil, nil)
+	svc := NewService(repo, projSvc, nil, nil, nil)
 
 	projectID := uuid.New()
 	reporter := uuid.New()
@@ -784,7 +784,7 @@ func TestUpdate_MovingAwayFromDoneClearsCompletedAt(t *testing.T) {
 func TestGetWorkload_CountsActiveTasksAcrossProjectsExcludingDone(t *testing.T) {
 	repo := newFakeRepository()
 	projSvc := newFakeProjectService()
-	svc := NewService(repo, projSvc, nil, nil)
+	svc := NewService(repo, projSvc, nil, nil, nil)
 
 	projectA := uuid.New()
 	projectB := uuid.New()
@@ -826,7 +826,7 @@ func TestCreate_NotifiesAssigneeWhenSetAtCreation(t *testing.T) {
 	repo := newFakeRepository()
 	projSvc := newFakeProjectService()
 	notifier := &fakeNotifier{}
-	svc := NewService(repo, projSvc, nil, notifier)
+	svc := NewService(repo, projSvc, nil, notifier, nil)
 
 	projectID := uuid.New()
 	reporter := uuid.New()
@@ -850,7 +850,7 @@ func TestUpdate_NotifiesNewAssigneeOnChange(t *testing.T) {
 	repo := newFakeRepository()
 	projSvc := newFakeProjectService()
 	notifier := &fakeNotifier{}
-	svc := NewService(repo, projSvc, nil, notifier)
+	svc := NewService(repo, projSvc, nil, notifier, nil)
 
 	projectID := uuid.New()
 	reporter := uuid.New()
@@ -877,7 +877,7 @@ func TestUpdate_DoesNotNotifyWhenAssigneeUnchanged(t *testing.T) {
 	repo := newFakeRepository()
 	projSvc := newFakeProjectService()
 	notifier := &fakeNotifier{}
-	svc := NewService(repo, projSvc, nil, notifier)
+	svc := NewService(repo, projSvc, nil, notifier, nil)
 
 	projectID := uuid.New()
 	reporter := uuid.New()
@@ -907,7 +907,7 @@ func TestUpdate_DoesNotNotifyWhenAssigneeUnchanged(t *testing.T) {
 func TestListActiveByAssignee_ExcludesDoneAndOtherUsers(t *testing.T) {
 	repo := newFakeRepository()
 	projSvc := newFakeProjectService()
-	svc := NewService(repo, projSvc, nil, nil)
+	svc := NewService(repo, projSvc, nil, nil, nil)
 
 	projectID := uuid.New()
 	reporter := uuid.New()
@@ -936,7 +936,7 @@ func TestListActiveByAssignee_ExcludesDoneAndOtherUsers(t *testing.T) {
 func TestListCompletedByAssigneeSince_OnlyRecentCompletions(t *testing.T) {
 	repo := newFakeRepository()
 	projSvc := newFakeProjectService()
-	svc := NewService(repo, projSvc, nil, nil)
+	svc := NewService(repo, projSvc, nil, nil, nil)
 
 	projectID := uuid.New()
 	reporter := uuid.New()
@@ -963,6 +963,80 @@ func TestListCompletedByAssigneeSince_OnlyRecentCompletions(t *testing.T) {
 	}
 	if len(results) != 1 || results[0].ID != recent.ID {
 		t.Errorf("expected only the recent completion, got %v", results)
+	}
+}
+
+type fakeGamifier struct {
+	completions []uuid.UUID
+}
+
+func (f *fakeGamifier) OnTaskCompleted(_ context.Context, userID uuid.UUID, _ time.Time, _ *time.Time, _ Priority) error {
+	f.completions = append(f.completions, userID)
+	return nil
+}
+
+func TestUpdate_CompletingTaskCreditsAssignee(t *testing.T) {
+	repo := newFakeRepository()
+	projSvc := newFakeProjectService()
+	gamifier := &fakeGamifier{}
+	svc := NewService(repo, projSvc, nil, nil, gamifier)
+
+	projectID := uuid.New()
+	reporter := uuid.New()
+	assignee := uuid.New()
+	projSvc.addMember(projectID, reporter, false)
+	projSvc.addMember(projectID, assignee, false)
+
+	assigneeStr := assignee.String()
+	created, _ := svc.Create(context.Background(), reporter, auth.RoleEmployee, CreateRequest{ProjectID: projectID.String(), Title: "Set up CI", AssigneeID: &assigneeStr})
+
+	done := StatusDone
+	_, err := svc.Update(context.Background(), reporter, auth.RoleEmployee, mustParse(t, created.ID), UpdateRequest{Status: &done})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(gamifier.completions) != 1 || gamifier.completions[0] != assignee {
+		t.Errorf("expected assignee to be credited, got %v", gamifier.completions)
+	}
+}
+
+func TestUpdate_CompletingUnassignedTaskCreditsActor(t *testing.T) {
+	repo := newFakeRepository()
+	projSvc := newFakeProjectService()
+	gamifier := &fakeGamifier{}
+	svc := NewService(repo, projSvc, nil, nil, gamifier)
+
+	projectID := uuid.New()
+	reporter := uuid.New()
+	projSvc.addMember(projectID, reporter, false)
+
+	created, _ := svc.Create(context.Background(), reporter, auth.RoleEmployee, CreateRequest{ProjectID: projectID.String(), Title: "Set up CI"})
+
+	done := StatusDone
+	svc.Update(context.Background(), reporter, auth.RoleEmployee, mustParse(t, created.ID), UpdateRequest{Status: &done})
+
+	if len(gamifier.completions) != 1 || gamifier.completions[0] != reporter {
+		t.Errorf("expected actor to be credited for unassigned task, got %v", gamifier.completions)
+	}
+}
+
+func TestUpdate_NonCompletionUpdateDoesNotTriggerGamifier(t *testing.T) {
+	repo := newFakeRepository()
+	projSvc := newFakeProjectService()
+	gamifier := &fakeGamifier{}
+	svc := NewService(repo, projSvc, nil, nil, gamifier)
+
+	projectID := uuid.New()
+	reporter := uuid.New()
+	projSvc.addMember(projectID, reporter, false)
+
+	created, _ := svc.Create(context.Background(), reporter, auth.RoleEmployee, CreateRequest{ProjectID: projectID.String(), Title: "Set up CI"})
+
+	newTitle := "Renamed"
+	svc.Update(context.Background(), reporter, auth.RoleEmployee, mustParse(t, created.ID), UpdateRequest{Title: &newTitle})
+
+	if len(gamifier.completions) != 0 {
+		t.Errorf("expected no gamifier trigger for a non-completion update, got %v", gamifier.completions)
 	}
 }
 

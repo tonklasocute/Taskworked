@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
@@ -12,6 +13,7 @@ import (
 	appmiddleware "github.com/khomkrittk/taskworked/backend/internal/middleware"
 	"github.com/khomkrittk/taskworked/backend/internal/modules/actionplan"
 	"github.com/khomkrittk/taskworked/backend/internal/modules/auth"
+	"github.com/khomkrittk/taskworked/backend/internal/modules/gamification"
 	"github.com/khomkrittk/taskworked/backend/internal/modules/notification"
 	"github.com/khomkrittk/taskworked/backend/internal/modules/project"
 	"github.com/khomkrittk/taskworked/backend/internal/modules/report"
@@ -46,6 +48,18 @@ func (h *taskNotifierHolder) NotifyAssignment(ctx context.Context, assigneeID uu
 	return h.notifier.NotifyAssignment(ctx, assigneeID, taskID, taskTitle)
 }
 
+// taskGamifierHolder is the same late-binding fix as taskNotifierHolder,
+// for the same reason: gamification.Service needs task.Service (for its
+// perfect-week badge check), and task.Service needs a Gamifier.
+type taskGamifierHolder struct{ gamifier task.Gamifier }
+
+func (h *taskGamifierHolder) OnTaskCompleted(ctx context.Context, userID uuid.UUID, completedAt time.Time, dueDate *time.Time, priority task.Priority) error {
+	if h.gamifier == nil {
+		return nil
+	}
+	return h.gamifier.OnTaskCompleted(ctx, userID, completedAt, dueDate, priority)
+}
+
 func main() {
 	cfg := config.Load()
 
@@ -60,6 +74,7 @@ func main() {
 		&actionplan.Goal{}, &actionplan.Milestone{},
 		&team.Department{},
 		&notification.Notification{}, &notification.Preference{},
+		&gamification.Character{}, &gamification.Badge{}, &gamification.MissionProgress{},
 	); err != nil {
 		log.Fatalf("failed to run migrations: %v", err)
 	}
@@ -84,7 +99,8 @@ func main() {
 
 	taskRepo := task.NewRepository(db)
 	notifierHolder := &taskNotifierHolder{}
-	taskService := task.NewService(taskRepo, projectService, &projectEventPublisher{publisher}, notifierHolder)
+	gamifierHolder := &taskGamifierHolder{}
+	taskService := task.NewService(taskRepo, projectService, &projectEventPublisher{publisher}, notifierHolder, gamifierHolder)
 	taskHandler := task.NewHandler(taskService)
 
 	actionPlanRepo := actionplan.NewRepository(db)
@@ -97,6 +113,11 @@ func main() {
 	teamRepo := team.NewRepository(db)
 	teamService := team.NewService(teamRepo, authService, taskService, &team.RedisPresence{Client: redisClient})
 	teamHandler := team.NewHandler(teamService)
+
+	gamificationRepo := gamification.NewRepository(db)
+	gamificationService := gamification.NewService(gamificationRepo, taskService, teamService)
+	gamificationHandler := gamification.NewHandler(gamificationService)
+	gamifierHolder.gamifier = gamificationService
 
 	notificationRepo := notification.NewRepository(db)
 	emailSender := &notification.SMTPSender{
@@ -143,6 +164,7 @@ func main() {
 	reportHandler.RegisterRoutes(api.Group("", requireAuth, trackPresence))
 	teamHandler.RegisterRoutes(api.Group("", requireAuth, trackPresence))
 	notificationHandler.RegisterRoutes(api.Group("", requireAuth, trackPresence))
+	gamificationHandler.RegisterRoutes(api.Group("", requireAuth, trackPresence))
 	realtime.RegisterRoute(app, tokens, projectService, hub)
 
 	log.Fatal(app.Listen(":" + cfg.Port))

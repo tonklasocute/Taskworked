@@ -71,15 +71,25 @@ type Notifier interface {
 	NotifyAssignment(ctx context.Context, assigneeID uuid.UUID, taskID, taskTitle string) error
 }
 
+// Gamifier lets the service award EXP/badges/streak/mission progress when
+// a task is completed, without importing the gamification package
+// directly (same import-cycle reason as Notifier: gamification depends on
+// task.Service for its own perfect-week badge check). A nil gamifier
+// (e.g. in unit tests) means awarding is silently skipped.
+type Gamifier interface {
+	OnTaskCompleted(ctx context.Context, userID uuid.UUID, completedAt time.Time, dueDate *time.Time, priority Priority) error
+}
+
 type service struct {
 	repo       Repository
 	projectSvc project.Service
 	publisher  EventPublisher
 	notifier   Notifier
+	gamifier   Gamifier
 }
 
-func NewService(repo Repository, projectSvc project.Service, publisher EventPublisher, notifier Notifier) Service {
-	return &service{repo: repo, projectSvc: projectSvc, publisher: publisher, notifier: notifier}
+func NewService(repo Repository, projectSvc project.Service, publisher EventPublisher, notifier Notifier, gamifier Gamifier) Service {
+	return &service{repo: repo, projectSvc: projectSvc, publisher: publisher, notifier: notifier, gamifier: gamifier}
 }
 
 func (s *service) publish(ctx context.Context, projectID uuid.UUID, event Event) {
@@ -251,10 +261,12 @@ func (s *service) Update(ctx context.Context, actorID uuid.UUID, actorRole auth.
 	if req.Priority != nil {
 		t.Priority = *req.Priority
 	}
+	justCompleted := false
 	if req.Status != nil {
 		if *req.Status == StatusDone && t.Status != StatusDone {
 			now := time.Now()
 			t.CompletedAt = &now
+			justCompleted = true
 		} else if *req.Status != StatusDone {
 			t.CompletedAt = nil
 		}
@@ -311,6 +323,16 @@ func (s *service) Update(ctx context.Context, actorID uuid.UUID, actorRole auth.
 	assigneeChanged := t.AssigneeID != nil && (previousAssigneeID == nil || *previousAssigneeID != *t.AssigneeID)
 	if assigneeChanged && s.notifier != nil {
 		_ = s.notifier.NotifyAssignment(ctx, *t.AssigneeID, t.ID.String(), t.Title)
+	}
+
+	if justCompleted && s.gamifier != nil {
+		// Credit whoever's assigned; if nobody is, credit the actor who
+		// marked it done (they did the work either way).
+		recipient := actorID
+		if t.AssigneeID != nil {
+			recipient = *t.AssigneeID
+		}
+		_ = s.gamifier.OnTaskCompleted(ctx, recipient, *t.CompletedAt, t.DueDate, t.Priority)
 	}
 
 	return &resp, nil
