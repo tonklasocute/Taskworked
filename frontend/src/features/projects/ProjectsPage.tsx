@@ -83,19 +83,21 @@ export default function ProjectsPage() {
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {data?.items.map((project) => (
-          <Card key={project.id}>
-            <CardHeader>
-              <CardTitle>{project.name}</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {project.description && (
-                <p className="mb-3 line-clamp-2 text-sm text-muted-foreground">{project.description}</p>
-              )}
-              <span className="inline-flex rounded-full bg-muted px-2 py-1 text-xs font-medium text-muted-foreground">
-                {STATUS_LABEL[project.status] ?? project.status}
-              </span>
-            </CardContent>
-          </Card>
+          <Link key={project.id} to={`/projects/${project.id}`}>
+            <Card className="h-full transition-opacity hover:opacity-90">
+              <CardHeader>
+                <CardTitle>{project.name}</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {project.description && (
+                  <p className="mb-3 line-clamp-2 text-sm text-muted-foreground">{project.description}</p>
+                )}
+                <span className="inline-flex rounded-full bg-muted px-2 py-1 text-xs font-medium text-muted-foreground">
+                  {STATUS_LABEL[project.status] ?? project.status}
+                </span>
+              </CardContent>
+            </Card>
+          </Link>
         ))}
       </div>
     </div>

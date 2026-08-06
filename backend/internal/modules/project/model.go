@@ -9,11 +9,11 @@ import (
 type Status string
 
 const (
-	StatusPlanning Status = "planning"
-	StatusActive   Status = "active"
-	StatusOnHold   Status = "on_hold"
+	StatusPlanning  Status = "planning"
+	StatusActive    Status = "active"
+	StatusOnHold    Status = "on_hold"
 	StatusCompleted Status = "completed"
-	StatusArchived Status = "archived"
+	StatusArchived  Status = "archived"
 )
 
 type Project struct {
@@ -39,8 +39,8 @@ const (
 )
 
 type Member struct {
-	ProjectID uuid.UUID `gorm:"type:uuid;primaryKey"`
-	UserID    uuid.UUID `gorm:"type:uuid;primaryKey"`
+	ProjectID uuid.UUID  `gorm:"type:uuid;primaryKey"`
+	UserID    uuid.UUID  `gorm:"type:uuid;primaryKey"`
 	Role      MemberRole `gorm:"type:varchar(20);not null;default:'member'"`
 	CreatedAt time.Time
 }

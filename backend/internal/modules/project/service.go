@@ -18,6 +18,12 @@ type Service interface {
 	Delete(ctx context.Context, actorID uuid.UUID, actorRole auth.Role, id uuid.UUID) error
 	AddMember(ctx context.Context, actorID uuid.UUID, actorRole auth.Role, id uuid.UUID, req AddMemberRequest) error
 	RemoveMember(ctx context.Context, actorID uuid.UUID, actorRole auth.Role, id, targetUserID uuid.UUID) error
+
+	// CheckMembership lets other modules (e.g. task) authorize
+	// project-scoped actions without depending on this module's
+	// repository directly. isMember is true for org admins even without
+	// an explicit membership row.
+	CheckMembership(ctx context.Context, actorID uuid.UUID, actorRole auth.Role, projectID uuid.UUID) (isMember bool, isManager bool, err error)
 }
 
 type service struct {
@@ -61,7 +67,7 @@ func (s *service) Get(ctx context.Context, actorID uuid.UUID, actorRole auth.Rol
 		return nil, notFoundOrInternal(err)
 	}
 
-	if !isOrgAdmin(actorRole) {
+	if !auth.IsOrgAdmin(actorRole) {
 		if _, err := s.repo.FindMember(ctx, id, actorID); err != nil {
 			return nil, apperrors.Forbidden("not a member of this project")
 		}
@@ -202,7 +208,7 @@ func (s *service) RemoveMember(ctx context.Context, actorID uuid.UUID, actorRole
 // canManage reports whether actor is an org admin/super admin, or the
 // project's own owner-role member.
 func (s *service) canManage(ctx context.Context, actorID uuid.UUID, actorRole auth.Role, projectID uuid.UUID) (bool, error) {
-	if isOrgAdmin(actorRole) {
+	if auth.IsOrgAdmin(actorRole) {
 		return true, nil
 	}
 	member, err := s.repo.FindMember(ctx, projectID, actorID)
@@ -215,8 +221,18 @@ func (s *service) canManage(ctx context.Context, actorID uuid.UUID, actorRole au
 	return member.Role == MemberRoleOwner, nil
 }
 
-func isOrgAdmin(role auth.Role) bool {
-	return role == auth.RoleAdmin || role == auth.RoleSuperAdmin
+func (s *service) CheckMembership(ctx context.Context, actorID uuid.UUID, actorRole auth.Role, projectID uuid.UUID) (bool, bool, error) {
+	if auth.IsOrgAdmin(actorRole) {
+		return true, true, nil
+	}
+	member, err := s.repo.FindMember(ctx, projectID, actorID)
+	if errors.Is(err, ErrNotFound) {
+		return false, false, nil
+	}
+	if err != nil {
+		return false, false, err
+	}
+	return true, member.Role == MemberRoleOwner, nil
 }
 
 func notFoundOrInternal(err error) error {

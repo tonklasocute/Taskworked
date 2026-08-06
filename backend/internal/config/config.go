@@ -8,24 +8,24 @@ import (
 )
 
 type Config struct {
-	Port               string
-	DatabaseURL        string
-	RedisAddr          string
-	RedisPassword      string
-	JWTAccessSecret    string
-	JWTRefreshSecret   string
-	AccessTokenTTL     time.Duration
-	RefreshTokenTTL    time.Duration
-	AnthropicAPIKey    string
-	MinioEndpoint      string
-	MinioAccessKey     string
-	MinioSecretKey     string
-	MinioBucket        string
-	SMTPHost           string
-	SMTPPort           string
-	SMTPUser           string
-	SMTPPassword       string
-	LineNotifyToken    string
+	Port             string
+	DatabaseURL      string
+	RedisAddr        string
+	RedisPassword    string
+	JWTAccessSecret  string
+	JWTRefreshSecret string
+	AccessTokenTTL   time.Duration
+	RefreshTokenTTL  time.Duration
+	AnthropicAPIKey  string
+	MinioEndpoint    string
+	MinioAccessKey   string
+	MinioSecretKey   string
+	MinioBucket      string
+	SMTPHost         string
+	SMTPPort         string
+	SMTPUser         string
+	SMTPPassword     string
+	LineNotifyToken  string
 }
 
 func Load() *Config {

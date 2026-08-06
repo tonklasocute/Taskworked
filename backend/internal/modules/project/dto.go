@@ -43,10 +43,10 @@ type Response struct {
 }
 
 type ListResponse struct {
-	Items      []Response `json:"items"`
-	Total      int64      `json:"total"`
-	Page       int        `json:"page"`
-	PageSize   int        `json:"page_size"`
+	Items    []Response `json:"items"`
+	Total    int64      `json:"total"`
+	Page     int        `json:"page"`
+	PageSize int        `json:"page_size"`
 }
 
 func toResponse(p *Project) Response {
