@@ -3,6 +3,7 @@ package actionplan
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/khomkrittk/taskworked/backend/internal/modules/auth"
@@ -110,6 +111,12 @@ func (f *fakeTaskService) GetGanttView(context.Context, uuid.UUID, auth.Role, uu
 	panic("not implemented")
 }
 func (f *fakeTaskService) GetWorkload(context.Context, uuid.UUID) (int64, error) {
+	panic("not implemented")
+}
+func (f *fakeTaskService) ListActiveByAssignee(context.Context, uuid.UUID) ([]task.Response, error) {
+	panic("not implemented")
+}
+func (f *fakeTaskService) ListCompletedByAssigneeSince(context.Context, uuid.UUID, time.Time) ([]task.Response, error) {
 	panic("not implemented")
 }
 

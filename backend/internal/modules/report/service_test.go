@@ -113,6 +113,12 @@ func (f *fakeTaskService) GetGanttView(context.Context, uuid.UUID, auth.Role, uu
 func (f *fakeTaskService) GetWorkload(context.Context, uuid.UUID) (int64, error) {
 	panic("not implemented")
 }
+func (f *fakeTaskService) ListActiveByAssignee(context.Context, uuid.UUID) ([]task.Response, error) {
+	panic("not implemented")
+}
+func (f *fakeTaskService) ListCompletedByAssigneeSince(context.Context, uuid.UUID, time.Time) ([]task.Response, error) {
+	panic("not implemented")
+}
 
 func appErrStatus(t *testing.T, err error) int {
 	t.Helper()

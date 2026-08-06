@@ -3,6 +3,7 @@ package task
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -38,6 +39,12 @@ type Repository interface {
 	// CountActiveByAssignee counts a user's non-Done tasks across every
 	// project (not project-scoped) — the Team directory's "workload".
 	CountActiveByAssignee(ctx context.Context, assigneeID uuid.UUID) (int64, error)
+
+	// ListActiveByAssignee and ListCompletedByAssigneeSince back the
+	// notification digests — actual task details (not just a count),
+	// across every project, for one user.
+	ListActiveByAssignee(ctx context.Context, assigneeID uuid.UUID) ([]Task, error)
+	ListCompletedByAssigneeSince(ctx context.Context, assigneeID uuid.UUID, since time.Time) ([]Task, error)
 }
 
 type repository struct {
@@ -191,4 +198,22 @@ func (r *repository) CountActiveByAssignee(ctx context.Context, assigneeID uuid.
 		Where("assignee_id = ? AND status != ?", assigneeID, StatusDone).
 		Count(&count).Error
 	return count, err
+}
+
+func (r *repository) ListActiveByAssignee(ctx context.Context, assigneeID uuid.UUID) ([]Task, error) {
+	var tasks []Task
+	err := r.db.WithContext(ctx).
+		Where("assignee_id = ? AND status != ?", assigneeID, StatusDone).
+		Order("due_date ASC NULLS LAST").
+		Find(&tasks).Error
+	return tasks, err
+}
+
+func (r *repository) ListCompletedByAssigneeSince(ctx context.Context, assigneeID uuid.UUID, since time.Time) ([]Task, error) {
+	var tasks []Task
+	err := r.db.WithContext(ctx).
+		Where("assignee_id = ? AND status = ? AND completed_at >= ?", assigneeID, StatusDone, since).
+		Order("completed_at DESC").
+		Find(&tasks).Error
+	return tasks, err
 }

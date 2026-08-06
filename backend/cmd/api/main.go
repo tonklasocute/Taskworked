@@ -7,10 +7,12 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/logger"
+	"github.com/google/uuid"
 	"github.com/khomkrittk/taskworked/backend/internal/config"
 	appmiddleware "github.com/khomkrittk/taskworked/backend/internal/middleware"
 	"github.com/khomkrittk/taskworked/backend/internal/modules/actionplan"
 	"github.com/khomkrittk/taskworked/backend/internal/modules/auth"
+	"github.com/khomkrittk/taskworked/backend/internal/modules/notification"
 	"github.com/khomkrittk/taskworked/backend/internal/modules/project"
 	"github.com/khomkrittk/taskworked/backend/internal/modules/report"
 	"github.com/khomkrittk/taskworked/backend/internal/modules/task"
@@ -18,7 +20,31 @@ import (
 	"github.com/khomkrittk/taskworked/backend/internal/platform/cache"
 	"github.com/khomkrittk/taskworked/backend/internal/platform/database"
 	"github.com/khomkrittk/taskworked/backend/internal/realtime"
+	"github.com/robfig/cron/v3"
 )
+
+// projectEventPublisher bridges realtime.Publisher's named PublishToProject
+// method to task.EventPublisher's generic Publish signature, so the task
+// package's interface (and its tests) never had to change shape.
+type projectEventPublisher struct{ p *realtime.Publisher }
+
+func (a *projectEventPublisher) Publish(ctx context.Context, projectID string, event any) error {
+	return a.p.PublishToProject(ctx, projectID, event)
+}
+
+// taskNotifierHolder breaks the construction cycle between task.Service
+// (needs a Notifier to raise assignment notifications) and
+// notification.Service (needs task.Service for its digest queries): the
+// holder is handed to task.NewService empty, then populated with the real
+// notification.Service once that's constructed further down.
+type taskNotifierHolder struct{ notifier task.Notifier }
+
+func (h *taskNotifierHolder) NotifyAssignment(ctx context.Context, assigneeID uuid.UUID, taskID, taskTitle string) error {
+	if h.notifier == nil {
+		return nil
+	}
+	return h.notifier.NotifyAssignment(ctx, assigneeID, taskID, taskTitle)
+}
 
 func main() {
 	cfg := config.Load()
@@ -33,6 +59,7 @@ func main() {
 		&task.Task{}, &task.ChecklistItem{}, &task.Tag{}, &task.Dependency{},
 		&actionplan.Goal{}, &actionplan.Milestone{},
 		&team.Department{},
+		&notification.Notification{}, &notification.Preference{},
 	); err != nil {
 		log.Fatalf("failed to run migrations: %v", err)
 	}
@@ -56,7 +83,8 @@ func main() {
 	go realtime.RunSubscriber(subscriberCtx, redisClient, hub)
 
 	taskRepo := task.NewRepository(db)
-	taskService := task.NewService(taskRepo, projectService, publisher)
+	notifierHolder := &taskNotifierHolder{}
+	taskService := task.NewService(taskRepo, projectService, &projectEventPublisher{publisher}, notifierHolder)
 	taskHandler := task.NewHandler(taskService)
 
 	actionPlanRepo := actionplan.NewRepository(db)
@@ -69,6 +97,27 @@ func main() {
 	teamRepo := team.NewRepository(db)
 	teamService := team.NewService(teamRepo, authService, taskService, &team.RedisPresence{Client: redisClient})
 	teamHandler := team.NewHandler(teamService)
+
+	notificationRepo := notification.NewRepository(db)
+	emailSender := &notification.SMTPSender{
+		Host: cfg.SMTPHost, Port: cfg.SMTPPort,
+		Username: cfg.SMTPUser, Password: cfg.SMTPPassword, From: cfg.SMTPFrom,
+	}
+	// publisher already has a PublishToUser method matching
+	// notification.Broadcaster's signature — no adapter needed here,
+	// unlike task.EventPublisher (see projectEventPublisher above).
+	notificationService := notification.NewService(notificationRepo, authService, taskService, publisher, emailSender, notification.NewLineNotifySender())
+	notificationHandler := notification.NewHandler(notificationService)
+	notifierHolder.notifier = notificationService
+
+	cronScheduler := cron.New()
+	digestCtx := context.Background()
+	cronScheduler.AddFunc("0 8 * * *", func() { notificationService.SendDailyDigests(digestCtx) })
+	cronScheduler.AddFunc("0 18 * * *", func() { notificationService.SendEndOfDayDigests(digestCtx) })
+	cronScheduler.AddFunc("30 7 * * 1", func() { notificationService.SendWeeklyDigests(digestCtx) })
+	cronScheduler.AddFunc("0 7 1 * *", func() { notificationService.SendMonthlyDigests(digestCtx) })
+	cronScheduler.Start()
+	defer cronScheduler.Stop()
 
 	requireAuth := appmiddleware.RequireAuth(tokens)
 	trackPresence := appmiddleware.TrackPresence(redisClient)
@@ -93,6 +142,7 @@ func main() {
 	actionPlanHandler.RegisterRoutes(api.Group("", requireAuth, trackPresence))
 	reportHandler.RegisterRoutes(api.Group("", requireAuth, trackPresence))
 	teamHandler.RegisterRoutes(api.Group("", requireAuth, trackPresence))
+	notificationHandler.RegisterRoutes(api.Group("", requireAuth, trackPresence))
 	realtime.RegisterRoute(app, tokens, projectService, hub)
 
 	log.Fatal(app.Listen(":" + cfg.Port))

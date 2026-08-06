@@ -22,7 +22,10 @@ func (a *connAdapter) Send(data []byte) error {
 // RegisterRoute wires GET /ws?token=...&project_id=... — the browser
 // WebSocket API can't set an Authorization header, so the access token
 // travels as a query param instead, validated the same way as the
-// Authorization header on every other route.
+// Authorization header on every other route. project_id is optional: every
+// connection is always subscribed to the caller's own personal channel
+// (for notifications), and additionally to a project's channel when
+// project_id is given and membership checks out.
 func RegisterRoute(router fiber.Router, tokens *auth.TokenService, projectSvc project.Service, hub *Hub) {
 	router.Use("/ws", func(c *fiber.Ctx) error {
 		if !websocket.IsWebSocketUpgrade(c) {
@@ -38,9 +41,8 @@ func RegisterRoute(router fiber.Router, tokens *auth.TokenService, projectSvc pr
 
 func handleConn(c *websocket.Conn, tokens *auth.TokenService, projectSvc project.Service, hub *Hub) {
 	token := c.Query("token")
-	projectID := c.Query("project_id")
-	if token == "" || projectID == "" {
-		closeWith(c, "missing token or project_id")
+	if token == "" {
+		closeWith(c, "missing token")
 		return
 	}
 
@@ -55,21 +57,29 @@ func handleConn(c *websocket.Conn, tokens *auth.TokenService, projectSvc project
 		closeWith(c, "invalid user")
 		return
 	}
-	projID, err := uuid.Parse(projectID)
-	if err != nil {
-		closeWith(c, "invalid project_id")
-		return
-	}
-
-	isMember, _, err := projectSvc.CheckMembership(context.Background(), actorID, claims.Role, projID)
-	if err != nil || !isMember {
-		closeWith(c, "not a member of this project")
-		return
-	}
 
 	sender := &connAdapter{conn: c}
-	hub.Register(projectID, sender)
-	defer hub.Unregister(projectID, sender)
+
+	userTopic := UserTopic(actorID.String())
+	hub.Register(userTopic, sender)
+	defer hub.Unregister(userTopic, sender)
+
+	if projectID := c.Query("project_id"); projectID != "" {
+		projID, err := uuid.Parse(projectID)
+		if err != nil {
+			closeWith(c, "invalid project_id")
+			return
+		}
+		isMember, _, err := projectSvc.CheckMembership(context.Background(), actorID, claims.Role, projID)
+		if err != nil || !isMember {
+			closeWith(c, "not a member of this project")
+			return
+		}
+
+		projectTopic := ProjectTopic(projectID)
+		hub.Register(projectTopic, sender)
+		defer hub.Unregister(projectTopic, sender)
+	}
 
 	// Block on reads purely to detect disconnects; the client never sends
 	// application messages, this is a server-to-client broadcast channel.

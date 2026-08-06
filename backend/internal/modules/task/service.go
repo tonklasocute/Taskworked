@@ -38,6 +38,13 @@ type Service interface {
 	// project. No membership check — it's a count, not task details, and
 	// is intended to be visible org-wide via the Team directory.
 	GetWorkload(ctx context.Context, userID uuid.UUID) (int64, error)
+
+	// ListActiveByAssignee and ListCompletedByAssigneeSince back the
+	// notification digests. Same no-membership-check rationale as
+	// GetWorkload: the notification module already knows who it's
+	// messaging, this just supplies the content.
+	ListActiveByAssignee(ctx context.Context, userID uuid.UUID) ([]Response, error)
+	ListCompletedByAssigneeSince(ctx context.Context, userID uuid.UUID, since time.Time) ([]Response, error)
 }
 
 // EventPublisher lets the service broadcast task changes over WebSocket
@@ -55,14 +62,24 @@ type Event struct {
 	TaskID string    `json:"task_id,omitempty"`
 }
 
+// Notifier lets the service raise a personal notification when a task is
+// assigned, without importing the notification package directly (which
+// would create an import cycle: notification depends on task.Service for
+// digest queries). A nil notifier (e.g. in unit tests) means notifying is
+// silently skipped.
+type Notifier interface {
+	NotifyAssignment(ctx context.Context, assigneeID uuid.UUID, taskID, taskTitle string) error
+}
+
 type service struct {
 	repo       Repository
 	projectSvc project.Service
 	publisher  EventPublisher
+	notifier   Notifier
 }
 
-func NewService(repo Repository, projectSvc project.Service, publisher EventPublisher) Service {
-	return &service{repo: repo, projectSvc: projectSvc, publisher: publisher}
+func NewService(repo Repository, projectSvc project.Service, publisher EventPublisher, notifier Notifier) Service {
+	return &service{repo: repo, projectSvc: projectSvc, publisher: publisher, notifier: notifier}
 }
 
 func (s *service) publish(ctx context.Context, projectID uuid.UUID, event Event) {
@@ -155,6 +172,11 @@ func (s *service) Create(ctx context.Context, actorID uuid.UUID, actorRole auth.
 
 	resp := toResponse(t, req.Tags)
 	s.publish(ctx, t.ProjectID, Event{Type: "task.created", Task: &resp})
+
+	if t.AssigneeID != nil && s.notifier != nil {
+		_ = s.notifier.NotifyAssignment(ctx, *t.AssigneeID, t.ID.String(), t.Title)
+	}
+
 	return &resp, nil
 }
 
@@ -258,6 +280,7 @@ func (s *service) Update(ctx context.Context, actorID uuid.UUID, actorRole auth.
 	if t.StartDate != nil && t.DueDate != nil && t.StartDate.After(*t.DueDate) {
 		return nil, apperrors.BadRequest("start_date must not be after due_date")
 	}
+	previousAssigneeID := t.AssigneeID
 	if req.AssigneeID != nil {
 		assigneeID, err := s.validatedAssignee(ctx, actorRole, t.ProjectID, req.AssigneeID)
 		if err != nil {
@@ -284,6 +307,12 @@ func (s *service) Update(ctx context.Context, actorID uuid.UUID, actorRole auth.
 
 	resp := toResponse(t, tags)
 	s.publish(ctx, t.ProjectID, Event{Type: "task.updated", Task: &resp})
+
+	assigneeChanged := t.AssigneeID != nil && (previousAssigneeID == nil || *previousAssigneeID != *t.AssigneeID)
+	if assigneeChanged && s.notifier != nil {
+		_ = s.notifier.NotifyAssignment(ctx, *t.AssigneeID, t.ID.String(), t.Title)
+	}
+
 	return &resp, nil
 }
 
@@ -501,6 +530,30 @@ func (s *service) GetWorkload(ctx context.Context, userID uuid.UUID) (int64, err
 		return 0, apperrors.Internal("failed to count workload")
 	}
 	return count, nil
+}
+
+func (s *service) ListActiveByAssignee(ctx context.Context, userID uuid.UUID) ([]Response, error) {
+	tasks, err := s.repo.ListActiveByAssignee(ctx, userID)
+	if err != nil {
+		return nil, apperrors.Internal("failed to list active tasks")
+	}
+	responses := make([]Response, len(tasks))
+	for i := range tasks {
+		responses[i] = toResponse(&tasks[i], nil)
+	}
+	return responses, nil
+}
+
+func (s *service) ListCompletedByAssigneeSince(ctx context.Context, userID uuid.UUID, since time.Time) ([]Response, error) {
+	tasks, err := s.repo.ListCompletedByAssigneeSince(ctx, userID, since)
+	if err != nil {
+		return nil, apperrors.Internal("failed to list completed tasks")
+	}
+	responses := make([]Response, len(tasks))
+	for i := range tasks {
+		responses[i] = toResponse(&tasks[i], nil)
+	}
+	return responses, nil
 }
 
 func (s *service) GetGanttView(ctx context.Context, actorID uuid.UUID, actorRole auth.Role, projectID uuid.UUID) (*GanttResponse, error) {

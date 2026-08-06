@@ -25,6 +25,7 @@ type Config struct {
 	SMTPPort         string
 	SMTPUser         string
 	SMTPPassword     string
+	SMTPFrom         string
 	LineNotifyToken  string
 }
 
@@ -49,6 +50,7 @@ func Load() *Config {
 		SMTPPort:         env("SMTP_PORT", "587"),
 		SMTPUser:         env("SMTP_USER", ""),
 		SMTPPassword:     env("SMTP_PASSWORD", ""),
+		SMTPFrom:         env("SMTP_FROM", "noreply@taskworked.local"),
 		LineNotifyToken:  env("LINE_NOTIFY_TOKEN", ""),
 	}
 }
