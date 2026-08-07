@@ -33,6 +33,36 @@ export interface MySummary {
   tasks: Task[];
 }
 
+export interface TaskComment {
+  id: string;
+  task_id: string;
+  author_id: string;
+  author_name: string;
+  body: string;
+  created_at: string;
+}
+
+export interface TaskAttachment {
+  id: string;
+  task_id: string;
+  uploader_id: string;
+  uploader_name: string;
+  file_name: string;
+  content_type: string;
+  size_bytes: number;
+  created_at: string;
+}
+
+export interface TaskWatcher {
+  user_id: string;
+  name: string;
+  email: string;
+}
+
+export interface WatchStatus {
+  watching: boolean;
+}
+
 export interface GanttDependency {
   task_id: string;
   depends_on_task_id: string;

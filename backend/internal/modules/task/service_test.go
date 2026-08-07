@@ -3,6 +3,8 @@ package task
 import (
 	"context"
 	"errors"
+	"io"
+	"strings"
 	"testing"
 	"time"
 
@@ -72,13 +74,18 @@ type fakeRepository struct {
 	tags         map[uuid.UUID][]string
 	checklist    map[uuid.UUID]*ChecklistItem
 	dependencies []Dependency
+	comments     map[uuid.UUID]*Comment
+	attachments  map[uuid.UUID]*Attachment
+	watchers     []Watcher
 }
 
 func newFakeRepository() *fakeRepository {
 	return &fakeRepository{
-		tasks:     make(map[uuid.UUID]*Task),
-		tags:      make(map[uuid.UUID][]string),
-		checklist: make(map[uuid.UUID]*ChecklistItem),
+		tasks:       make(map[uuid.UUID]*Task),
+		tags:        make(map[uuid.UUID][]string),
+		checklist:   make(map[uuid.UUID]*ChecklistItem),
+		comments:    make(map[uuid.UUID]*Comment),
+		attachments: make(map[uuid.UUID]*Attachment),
 	}
 }
 
@@ -229,6 +236,105 @@ func (f *fakeRepository) ListCompletedByAssigneeSince(_ context.Context, assigne
 	return result, nil
 }
 
+func (f *fakeRepository) AddComment(_ context.Context, c *Comment) error {
+	if c.ID == uuid.Nil {
+		c.ID = uuid.New()
+	}
+	c.CreatedAt = time.Now()
+	f.comments[c.ID] = c
+	return nil
+}
+
+func (f *fakeRepository) ListComments(_ context.Context, taskID uuid.UUID) ([]Comment, error) {
+	var result []Comment
+	for _, c := range f.comments {
+		if c.TaskID == taskID {
+			result = append(result, *c)
+		}
+	}
+	return result, nil
+}
+
+func (f *fakeRepository) FindComment(_ context.Context, id uuid.UUID) (*Comment, error) {
+	c, ok := f.comments[id]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	return c, nil
+}
+
+func (f *fakeRepository) DeleteComment(_ context.Context, id uuid.UUID) error {
+	delete(f.comments, id)
+	return nil
+}
+
+func (f *fakeRepository) AddAttachment(_ context.Context, a *Attachment) error {
+	if a.ID == uuid.Nil {
+		a.ID = uuid.New()
+	}
+	a.CreatedAt = time.Now()
+	f.attachments[a.ID] = a
+	return nil
+}
+
+func (f *fakeRepository) ListAttachments(_ context.Context, taskID uuid.UUID) ([]Attachment, error) {
+	var result []Attachment
+	for _, a := range f.attachments {
+		if a.TaskID == taskID {
+			result = append(result, *a)
+		}
+	}
+	return result, nil
+}
+
+func (f *fakeRepository) FindAttachment(_ context.Context, id uuid.UUID) (*Attachment, error) {
+	a, ok := f.attachments[id]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	return a, nil
+}
+
+func (f *fakeRepository) DeleteAttachment(_ context.Context, id uuid.UUID) error {
+	delete(f.attachments, id)
+	return nil
+}
+
+func (f *fakeRepository) AddWatcher(_ context.Context, w *Watcher) error {
+	f.watchers = append(f.watchers, *w)
+	return nil
+}
+
+func (f *fakeRepository) RemoveWatcher(_ context.Context, taskID, userID uuid.UUID) error {
+	kept := f.watchers[:0]
+	for _, w := range f.watchers {
+		if !(w.TaskID == taskID && w.UserID == userID) {
+			kept = append(kept, w)
+		}
+	}
+	f.watchers = kept
+	return nil
+}
+
+func (f *fakeRepository) ListWatchers(_ context.Context, taskID uuid.UUID) ([]Watcher, error) {
+	var result []Watcher
+	for _, w := range f.watchers {
+		if w.TaskID == taskID {
+			result = append(result, w)
+		}
+	}
+	return result, nil
+}
+
+func (f *fakeRepository) IsWatching(_ context.Context, taskID, userID uuid.UUID) (bool, error) {
+	for _, w := range f.watchers {
+		if w.TaskID == taskID && w.UserID == userID {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func appErrStatus(t *testing.T, err error) int {
 	t.Helper()
 	appErr, ok := err.(*apperrors.AppError)
@@ -243,7 +349,7 @@ func appErrStatus(t *testing.T, err error) int {
 func TestCreate_MemberCanCreateTaskAsReporter(t *testing.T) {
 	repo := newFakeRepository()
 	projSvc := newFakeProjectService()
-	svc := NewService(repo, projSvc, nil, nil, nil)
+	svc := NewService(repo, projSvc, nil, nil, nil, nil, nil)
 
 	projectID := uuid.New()
 	member := uuid.New()
@@ -270,7 +376,7 @@ func TestCreate_MemberCanCreateTaskAsReporter(t *testing.T) {
 func TestCreate_NonMemberIsForbidden(t *testing.T) {
 	repo := newFakeRepository()
 	projSvc := newFakeProjectService()
-	svc := NewService(repo, projSvc, nil, nil, nil)
+	svc := NewService(repo, projSvc, nil, nil, nil, nil, nil)
 
 	projectID := uuid.New()
 	outsider := uuid.New()
@@ -290,7 +396,7 @@ func TestCreate_NonMemberIsForbidden(t *testing.T) {
 func TestCreate_AssigneeMustBeProjectMember(t *testing.T) {
 	repo := newFakeRepository()
 	projSvc := newFakeProjectService()
-	svc := NewService(repo, projSvc, nil, nil, nil)
+	svc := NewService(repo, projSvc, nil, nil, nil, nil, nil)
 
 	projectID := uuid.New()
 	reporter := uuid.New()
@@ -314,7 +420,7 @@ func TestCreate_AssigneeMustBeProjectMember(t *testing.T) {
 func TestCreate_ParentTaskMustBeSameProject(t *testing.T) {
 	repo := newFakeRepository()
 	projSvc := newFakeProjectService()
-	svc := NewService(repo, projSvc, nil, nil, nil)
+	svc := NewService(repo, projSvc, nil, nil, nil, nil, nil)
 
 	projectA := uuid.New()
 	projectB := uuid.New()
@@ -346,7 +452,7 @@ func TestCreate_ParentTaskMustBeSameProject(t *testing.T) {
 func TestUpdate_PlainMemberCannotEditOthersTask(t *testing.T) {
 	repo := newFakeRepository()
 	projSvc := newFakeProjectService()
-	svc := NewService(repo, projSvc, nil, nil, nil)
+	svc := NewService(repo, projSvc, nil, nil, nil, nil, nil)
 
 	projectID := uuid.New()
 	reporter := uuid.New()
@@ -372,7 +478,7 @@ func TestUpdate_PlainMemberCannotEditOthersTask(t *testing.T) {
 func TestUpdate_AssigneeCanEdit(t *testing.T) {
 	repo := newFakeRepository()
 	projSvc := newFakeProjectService()
-	svc := NewService(repo, projSvc, nil, nil, nil)
+	svc := NewService(repo, projSvc, nil, nil, nil, nil, nil)
 
 	projectID := uuid.New()
 	reporter := uuid.New()
@@ -403,7 +509,7 @@ func TestUpdate_AssigneeCanEdit(t *testing.T) {
 func TestUpdate_ProjectManagerCanEditAnyTask(t *testing.T) {
 	repo := newFakeRepository()
 	projSvc := newFakeProjectService()
-	svc := NewService(repo, projSvc, nil, nil, nil)
+	svc := NewService(repo, projSvc, nil, nil, nil, nil, nil)
 
 	projectID := uuid.New()
 	reporter := uuid.New()
@@ -429,7 +535,7 @@ func TestUpdate_ProjectManagerCanEditAnyTask(t *testing.T) {
 func TestDelete_OnlyReporterOrManagerCanDelete(t *testing.T) {
 	repo := newFakeRepository()
 	projSvc := newFakeProjectService()
-	svc := NewService(repo, projSvc, nil, nil, nil)
+	svc := NewService(repo, projSvc, nil, nil, nil, nil, nil)
 
 	projectID := uuid.New()
 	reporter := uuid.New()
@@ -458,7 +564,7 @@ func TestDelete_OnlyReporterOrManagerCanDelete(t *testing.T) {
 func TestCreate_StartDateAfterDueDateIsRejected(t *testing.T) {
 	repo := newFakeRepository()
 	projSvc := newFakeProjectService()
-	svc := NewService(repo, projSvc, nil, nil, nil)
+	svc := NewService(repo, projSvc, nil, nil, nil, nil, nil)
 
 	projectID := uuid.New()
 	reporter := uuid.New()
@@ -483,7 +589,7 @@ func TestCreate_StartDateAfterDueDateIsRejected(t *testing.T) {
 func TestUpdate_StartDateAfterExistingDueDateIsRejected(t *testing.T) {
 	repo := newFakeRepository()
 	projSvc := newFakeProjectService()
-	svc := NewService(repo, projSvc, nil, nil, nil)
+	svc := NewService(repo, projSvc, nil, nil, nil, nil, nil)
 
 	projectID := uuid.New()
 	reporter := uuid.New()
@@ -512,7 +618,7 @@ func TestUpdate_StartDateAfterExistingDueDateIsRejected(t *testing.T) {
 func TestUpdate_ValidStartAndDueDateSpanIsAccepted(t *testing.T) {
 	repo := newFakeRepository()
 	projSvc := newFakeProjectService()
-	svc := NewService(repo, projSvc, nil, nil, nil)
+	svc := NewService(repo, projSvc, nil, nil, nil, nil, nil)
 
 	projectID := uuid.New()
 	reporter := uuid.New()
@@ -543,7 +649,7 @@ func TestUpdate_ValidStartAndDueDateSpanIsAccepted(t *testing.T) {
 func TestAddDependency_Success(t *testing.T) {
 	repo := newFakeRepository()
 	projSvc := newFakeProjectService()
-	svc := NewService(repo, projSvc, nil, nil, nil)
+	svc := NewService(repo, projSvc, nil, nil, nil, nil, nil)
 
 	projectID := uuid.New()
 	reporter := uuid.New()
@@ -566,7 +672,7 @@ func TestAddDependency_Success(t *testing.T) {
 func TestAddDependency_SelfDependencyRejected(t *testing.T) {
 	repo := newFakeRepository()
 	projSvc := newFakeProjectService()
-	svc := NewService(repo, projSvc, nil, nil, nil)
+	svc := NewService(repo, projSvc, nil, nil, nil, nil, nil)
 
 	projectID := uuid.New()
 	reporter := uuid.New()
@@ -585,7 +691,7 @@ func TestAddDependency_SelfDependencyRejected(t *testing.T) {
 func TestAddDependency_CrossProjectRejected(t *testing.T) {
 	repo := newFakeRepository()
 	projSvc := newFakeProjectService()
-	svc := NewService(repo, projSvc, nil, nil, nil)
+	svc := NewService(repo, projSvc, nil, nil, nil, nil, nil)
 
 	projectA, projectB := uuid.New(), uuid.New()
 	reporter := uuid.New()
@@ -607,7 +713,7 @@ func TestAddDependency_CrossProjectRejected(t *testing.T) {
 func TestAddDependency_CycleRejected(t *testing.T) {
 	repo := newFakeRepository()
 	projSvc := newFakeProjectService()
-	svc := NewService(repo, projSvc, nil, nil, nil)
+	svc := NewService(repo, projSvc, nil, nil, nil, nil, nil)
 
 	projectID := uuid.New()
 	reporter := uuid.New()
@@ -634,7 +740,7 @@ func TestAddDependency_CycleRejected(t *testing.T) {
 func TestAddDependency_ByNonEditorForbidden(t *testing.T) {
 	repo := newFakeRepository()
 	projSvc := newFakeProjectService()
-	svc := NewService(repo, projSvc, nil, nil, nil)
+	svc := NewService(repo, projSvc, nil, nil, nil, nil, nil)
 
 	projectID := uuid.New()
 	reporter := uuid.New()
@@ -657,7 +763,7 @@ func TestAddDependency_ByNonEditorForbidden(t *testing.T) {
 func TestGetGanttView_ReturnsTasksDepsAndCriticalPath(t *testing.T) {
 	repo := newFakeRepository()
 	projSvc := newFakeProjectService()
-	svc := NewService(repo, projSvc, nil, nil, nil)
+	svc := NewService(repo, projSvc, nil, nil, nil, nil, nil)
 
 	projectID := uuid.New()
 	reporter := uuid.New()
@@ -689,7 +795,7 @@ func TestGetGanttView_ReturnsTasksDepsAndCriticalPath(t *testing.T) {
 func TestGetGanttView_NonMemberForbidden(t *testing.T) {
 	repo := newFakeRepository()
 	projSvc := newFakeProjectService()
-	svc := NewService(repo, projSvc, nil, nil, nil)
+	svc := NewService(repo, projSvc, nil, nil, nil, nil, nil)
 
 	projectID := uuid.New()
 	outsider := uuid.New()
@@ -706,7 +812,7 @@ func TestGetGanttView_NonMemberForbidden(t *testing.T) {
 func TestListAllResponses_ReturnsAllProjectTasksForMember(t *testing.T) {
 	repo := newFakeRepository()
 	projSvc := newFakeProjectService()
-	svc := NewService(repo, projSvc, nil, nil, nil)
+	svc := NewService(repo, projSvc, nil, nil, nil, nil, nil)
 
 	projectID := uuid.New()
 	reporter := uuid.New()
@@ -727,7 +833,7 @@ func TestListAllResponses_ReturnsAllProjectTasksForMember(t *testing.T) {
 func TestListAllResponses_NonMemberForbidden(t *testing.T) {
 	repo := newFakeRepository()
 	projSvc := newFakeProjectService()
-	svc := NewService(repo, projSvc, nil, nil, nil)
+	svc := NewService(repo, projSvc, nil, nil, nil, nil, nil)
 
 	_, err := svc.ListAllResponses(context.Background(), uuid.New(), auth.RoleEmployee, uuid.New())
 	if err == nil {
@@ -741,7 +847,7 @@ func TestListAllResponses_NonMemberForbidden(t *testing.T) {
 func TestUpdate_MovingToDoneSetsCompletedAt(t *testing.T) {
 	repo := newFakeRepository()
 	projSvc := newFakeProjectService()
-	svc := NewService(repo, projSvc, nil, nil, nil)
+	svc := NewService(repo, projSvc, nil, nil, nil, nil, nil)
 
 	projectID := uuid.New()
 	reporter := uuid.New()
@@ -761,7 +867,7 @@ func TestUpdate_MovingToDoneSetsCompletedAt(t *testing.T) {
 func TestUpdate_MovingAwayFromDoneClearsCompletedAt(t *testing.T) {
 	repo := newFakeRepository()
 	projSvc := newFakeProjectService()
-	svc := NewService(repo, projSvc, nil, nil, nil)
+	svc := NewService(repo, projSvc, nil, nil, nil, nil, nil)
 
 	projectID := uuid.New()
 	reporter := uuid.New()
@@ -784,7 +890,7 @@ func TestUpdate_MovingAwayFromDoneClearsCompletedAt(t *testing.T) {
 func TestGetWorkload_CountsActiveTasksAcrossProjectsExcludingDone(t *testing.T) {
 	repo := newFakeRepository()
 	projSvc := newFakeProjectService()
-	svc := NewService(repo, projSvc, nil, nil, nil)
+	svc := NewService(repo, projSvc, nil, nil, nil, nil, nil)
 
 	projectA := uuid.New()
 	projectB := uuid.New()
@@ -814,7 +920,8 @@ func TestGetWorkload_CountsActiveTasksAcrossProjectsExcludingDone(t *testing.T) 
 }
 
 type fakeNotifier struct {
-	notified []uuid.UUID
+	notified        []uuid.UUID
+	commentNotified []uuid.UUID
 }
 
 func (f *fakeNotifier) NotifyAssignment(_ context.Context, assigneeID uuid.UUID, _, _ string) error {
@@ -822,11 +929,16 @@ func (f *fakeNotifier) NotifyAssignment(_ context.Context, assigneeID uuid.UUID,
 	return nil
 }
 
+func (f *fakeNotifier) NotifyComment(_ context.Context, userID uuid.UUID, _, _, _ string) error {
+	f.commentNotified = append(f.commentNotified, userID)
+	return nil
+}
+
 func TestCreate_NotifiesAssigneeWhenSetAtCreation(t *testing.T) {
 	repo := newFakeRepository()
 	projSvc := newFakeProjectService()
 	notifier := &fakeNotifier{}
-	svc := NewService(repo, projSvc, nil, notifier, nil)
+	svc := NewService(repo, projSvc, nil, nil, notifier, nil, nil)
 
 	projectID := uuid.New()
 	reporter := uuid.New()
@@ -850,7 +962,7 @@ func TestUpdate_NotifiesNewAssigneeOnChange(t *testing.T) {
 	repo := newFakeRepository()
 	projSvc := newFakeProjectService()
 	notifier := &fakeNotifier{}
-	svc := NewService(repo, projSvc, nil, notifier, nil)
+	svc := NewService(repo, projSvc, nil, nil, notifier, nil, nil)
 
 	projectID := uuid.New()
 	reporter := uuid.New()
@@ -877,7 +989,7 @@ func TestUpdate_DoesNotNotifyWhenAssigneeUnchanged(t *testing.T) {
 	repo := newFakeRepository()
 	projSvc := newFakeProjectService()
 	notifier := &fakeNotifier{}
-	svc := NewService(repo, projSvc, nil, notifier, nil)
+	svc := NewService(repo, projSvc, nil, nil, notifier, nil, nil)
 
 	projectID := uuid.New()
 	reporter := uuid.New()
@@ -907,7 +1019,7 @@ func TestUpdate_DoesNotNotifyWhenAssigneeUnchanged(t *testing.T) {
 func TestListActiveByAssignee_ExcludesDoneAndOtherUsers(t *testing.T) {
 	repo := newFakeRepository()
 	projSvc := newFakeProjectService()
-	svc := NewService(repo, projSvc, nil, nil, nil)
+	svc := NewService(repo, projSvc, nil, nil, nil, nil, nil)
 
 	projectID := uuid.New()
 	reporter := uuid.New()
@@ -936,7 +1048,7 @@ func TestListActiveByAssignee_ExcludesDoneAndOtherUsers(t *testing.T) {
 func TestListCompletedByAssigneeSince_OnlyRecentCompletions(t *testing.T) {
 	repo := newFakeRepository()
 	projSvc := newFakeProjectService()
-	svc := NewService(repo, projSvc, nil, nil, nil)
+	svc := NewService(repo, projSvc, nil, nil, nil, nil, nil)
 
 	projectID := uuid.New()
 	reporter := uuid.New()
@@ -979,7 +1091,7 @@ func TestUpdate_CompletingTaskCreditsAssignee(t *testing.T) {
 	repo := newFakeRepository()
 	projSvc := newFakeProjectService()
 	gamifier := &fakeGamifier{}
-	svc := NewService(repo, projSvc, nil, nil, gamifier)
+	svc := NewService(repo, projSvc, nil, nil, nil, gamifier, nil)
 
 	projectID := uuid.New()
 	reporter := uuid.New()
@@ -1004,7 +1116,7 @@ func TestUpdate_CompletingUnassignedTaskCreditsActor(t *testing.T) {
 	repo := newFakeRepository()
 	projSvc := newFakeProjectService()
 	gamifier := &fakeGamifier{}
-	svc := NewService(repo, projSvc, nil, nil, gamifier)
+	svc := NewService(repo, projSvc, nil, nil, nil, gamifier, nil)
 
 	projectID := uuid.New()
 	reporter := uuid.New()
@@ -1024,7 +1136,7 @@ func TestUpdate_NonCompletionUpdateDoesNotTriggerGamifier(t *testing.T) {
 	repo := newFakeRepository()
 	projSvc := newFakeProjectService()
 	gamifier := &fakeGamifier{}
-	svc := NewService(repo, projSvc, nil, nil, gamifier)
+	svc := NewService(repo, projSvc, nil, nil, nil, gamifier, nil)
 
 	projectID := uuid.New()
 	reporter := uuid.New()
@@ -1052,7 +1164,7 @@ func mustParse(t *testing.T, s string) uuid.UUID {
 func TestGetMySummary_ComputesCountsAndOrdersByDueDate(t *testing.T) {
 	repo := newFakeRepository()
 	projSvc := newFakeProjectService()
-	svc := NewService(repo, projSvc, nil, nil, nil)
+	svc := NewService(repo, projSvc, nil, nil, nil, nil, nil)
 
 	projectID := uuid.New()
 	reporter := uuid.New()
@@ -1098,7 +1210,7 @@ func TestGetMySummary_ComputesCountsAndOrdersByDueDate(t *testing.T) {
 func TestGetMySummary_CapsPreviewListAtEight(t *testing.T) {
 	repo := newFakeRepository()
 	projSvc := newFakeProjectService()
-	svc := NewService(repo, projSvc, nil, nil, nil)
+	svc := NewService(repo, projSvc, nil, nil, nil, nil, nil)
 
 	projectID := uuid.New()
 	reporter := uuid.New()
@@ -1120,5 +1232,393 @@ func TestGetMySummary_CapsPreviewListAtEight(t *testing.T) {
 	}
 	if len(summary.Tasks) != 8 {
 		t.Errorf("expected preview capped at 8, got %d", len(summary.Tasks))
+	}
+}
+
+// --- comment/attachment/watcher fakes -------------------------------------
+
+type fakeAuthService struct {
+	users map[string]auth.UserResponse
+}
+
+func newFakeAuthService() *fakeAuthService {
+	return &fakeAuthService{users: make(map[string]auth.UserResponse)}
+}
+
+func (f *fakeAuthService) addUser(id uuid.UUID, name, email string) {
+	f.users[id.String()] = auth.UserResponse{ID: id.String(), Name: name, Email: email}
+}
+
+func (f *fakeAuthService) GetUsersByIDs(_ context.Context, ids []uuid.UUID) ([]auth.UserResponse, error) {
+	result := make([]auth.UserResponse, 0, len(ids))
+	for _, id := range ids {
+		if u, ok := f.users[id.String()]; ok {
+			result = append(result, u)
+		}
+	}
+	return result, nil
+}
+
+func (f *fakeAuthService) Register(context.Context, auth.RegisterRequest) (*auth.AuthResponse, error) {
+	panic("not implemented")
+}
+func (f *fakeAuthService) Login(context.Context, auth.LoginRequest) (*auth.AuthResponse, error) {
+	panic("not implemented")
+}
+func (f *fakeAuthService) Refresh(context.Context, auth.RefreshRequest) (*auth.AuthResponse, error) {
+	panic("not implemented")
+}
+func (f *fakeAuthService) Logout(context.Context, string) error { panic("not implemented") }
+func (f *fakeAuthService) ListUsers(context.Context) ([]auth.UserResponse, error) {
+	panic("not implemented")
+}
+func (f *fakeAuthService) UpdateRole(context.Context, auth.Role, uuid.UUID, auth.UpdateRoleRequest) (*auth.UserResponse, error) {
+	panic("not implemented")
+}
+func (f *fakeAuthService) UpdateDepartment(context.Context, auth.Role, uuid.UUID, auth.UpdateDepartmentRequest) (*auth.UserResponse, error) {
+	panic("not implemented")
+}
+
+type fakeStorage struct {
+	objects    map[string]string
+	failUpload bool
+}
+
+func newFakeStorage() *fakeStorage {
+	return &fakeStorage{objects: make(map[string]string)}
+}
+
+func (f *fakeStorage) Upload(_ context.Context, objectKey string, r io.Reader, _ int64, _ string) error {
+	if f.failUpload {
+		return errors.New("upload failed")
+	}
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return err
+	}
+	f.objects[objectKey] = string(data)
+	return nil
+}
+
+func (f *fakeStorage) PresignedURL(_ context.Context, objectKey string, _ time.Duration) (string, error) {
+	if _, ok := f.objects[objectKey]; !ok {
+		return "", errors.New("object not found")
+	}
+	return "https://storage.example.com/" + objectKey, nil
+}
+
+func (f *fakeStorage) Delete(_ context.Context, objectKey string) error {
+	delete(f.objects, objectKey)
+	return nil
+}
+
+// --- comment tests ---------------------------------------------------------
+
+func TestAddComment_NonMemberForbidden(t *testing.T) {
+	repo := newFakeRepository()
+	projSvc := newFakeProjectService()
+	authSvc := newFakeAuthService()
+	svc := NewService(repo, projSvc, authSvc, nil, nil, nil, nil)
+
+	projectID := uuid.New()
+	reporter := uuid.New()
+	outsider := uuid.New()
+	projSvc.addMember(projectID, reporter, false)
+
+	created, err := svc.Create(context.Background(), reporter, auth.RoleEmployee, CreateRequest{ProjectID: projectID.String(), Title: "Task"})
+	if err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	_, err = svc.AddComment(context.Background(), outsider, auth.RoleEmployee, mustParse(t, created.ID), AddCommentRequest{Body: "hello"})
+	if appErrStatus(t, err) != 403 {
+		t.Fatalf("expected 403, got %v", err)
+	}
+}
+
+func TestAddComment_NotifiesAssigneeAndWatchersExceptAuthor(t *testing.T) {
+	repo := newFakeRepository()
+	projSvc := newFakeProjectService()
+	authSvc := newFakeAuthService()
+	notifier := &fakeNotifier{}
+	svc := NewService(repo, projSvc, authSvc, nil, notifier, nil, nil)
+
+	projectID := uuid.New()
+	reporter := uuid.New()
+	assignee := uuid.New()
+	watcher := uuid.New()
+	projSvc.addMember(projectID, reporter, false)
+	projSvc.addMember(projectID, assignee, false)
+	projSvc.addMember(projectID, watcher, false)
+	authSvc.addUser(reporter, "Reporter", "reporter@example.com")
+
+	assigneeStr := assignee.String()
+	created, err := svc.Create(context.Background(), reporter, auth.RoleEmployee, CreateRequest{ProjectID: projectID.String(), Title: "Task", AssigneeID: &assigneeStr})
+	if err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	taskID := mustParse(t, created.ID)
+	if err := svc.WatchTask(context.Background(), watcher, auth.RoleEmployee, taskID); err != nil {
+		t.Fatalf("setup watch: %v", err)
+	}
+
+	// Reporter comments — should notify the assignee and the watcher, but not itself.
+	resp, err := svc.AddComment(context.Background(), reporter, auth.RoleEmployee, taskID, AddCommentRequest{Body: "Please review"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.AuthorName != "Reporter" {
+		t.Errorf("expected author name to be resolved, got %q", resp.AuthorName)
+	}
+	if resp.Body != "Please review" {
+		t.Errorf("unexpected body: %q", resp.Body)
+	}
+
+	if len(notifier.commentNotified) != 2 {
+		t.Fatalf("expected 2 comment notifications, got %d: %v", len(notifier.commentNotified), notifier.commentNotified)
+	}
+	notified := map[uuid.UUID]bool{}
+	for _, id := range notifier.commentNotified {
+		notified[id] = true
+	}
+	if !notified[assignee] || !notified[watcher] {
+		t.Errorf("expected assignee and watcher to be notified, got %v", notifier.commentNotified)
+	}
+	if notified[reporter] {
+		t.Error("author should not notify themselves")
+	}
+}
+
+func TestDeleteComment_AuthorCanDeleteOwnComment(t *testing.T) {
+	repo := newFakeRepository()
+	projSvc := newFakeProjectService()
+	authSvc := newFakeAuthService()
+	svc := NewService(repo, projSvc, authSvc, nil, nil, nil, nil)
+
+	projectID := uuid.New()
+	reporter := uuid.New()
+	member := uuid.New()
+	projSvc.addMember(projectID, reporter, false)
+	projSvc.addMember(projectID, member, false)
+
+	created, _ := svc.Create(context.Background(), reporter, auth.RoleEmployee, CreateRequest{ProjectID: projectID.String(), Title: "Task"})
+	taskID := mustParse(t, created.ID)
+	comment, err := svc.AddComment(context.Background(), member, auth.RoleEmployee, taskID, AddCommentRequest{Body: "note"})
+	if err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	if err := svc.DeleteComment(context.Background(), member, auth.RoleEmployee, taskID, mustParse(t, comment.ID)); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	remaining, _ := svc.ListComments(context.Background(), reporter, auth.RoleEmployee, taskID)
+	if len(remaining) != 0 {
+		t.Errorf("expected comment to be deleted, got %v", remaining)
+	}
+}
+
+func TestDeleteComment_NonAuthorNonEditorForbidden(t *testing.T) {
+	repo := newFakeRepository()
+	projSvc := newFakeProjectService()
+	authSvc := newFakeAuthService()
+	svc := NewService(repo, projSvc, authSvc, nil, nil, nil, nil)
+
+	projectID := uuid.New()
+	reporter := uuid.New()
+	author := uuid.New()
+	bystander := uuid.New()
+	projSvc.addMember(projectID, reporter, false)
+	projSvc.addMember(projectID, author, false)
+	projSvc.addMember(projectID, bystander, false)
+
+	created, _ := svc.Create(context.Background(), reporter, auth.RoleEmployee, CreateRequest{ProjectID: projectID.String(), Title: "Task"})
+	taskID := mustParse(t, created.ID)
+	comment, err := svc.AddComment(context.Background(), author, auth.RoleEmployee, taskID, AddCommentRequest{Body: "note"})
+	if err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	err = svc.DeleteComment(context.Background(), bystander, auth.RoleEmployee, taskID, mustParse(t, comment.ID))
+	if appErrStatus(t, err) != 403 {
+		t.Fatalf("expected 403, got %v", err)
+	}
+}
+
+// --- attachment tests --------------------------------------------------
+
+func TestUploadAttachment_NoStorageConfigured(t *testing.T) {
+	repo := newFakeRepository()
+	projSvc := newFakeProjectService()
+	authSvc := newFakeAuthService()
+	svc := NewService(repo, projSvc, authSvc, nil, nil, nil, nil)
+
+	projectID := uuid.New()
+	reporter := uuid.New()
+	projSvc.addMember(projectID, reporter, false)
+	created, _ := svc.Create(context.Background(), reporter, auth.RoleEmployee, CreateRequest{ProjectID: projectID.String(), Title: "Task"})
+
+	_, err := svc.UploadAttachment(context.Background(), reporter, auth.RoleEmployee, mustParse(t, created.ID), "doc.pdf", "application/pdf", 3, strings.NewReader("abc"))
+	if appErrStatus(t, err) != 500 {
+		t.Fatalf("expected 500 for unconfigured storage, got %v", err)
+	}
+}
+
+func TestUploadAttachment_StoresBytesAndMetadata(t *testing.T) {
+	repo := newFakeRepository()
+	projSvc := newFakeProjectService()
+	authSvc := newFakeAuthService()
+	store := newFakeStorage()
+	svc := NewService(repo, projSvc, authSvc, nil, nil, nil, store)
+
+	projectID := uuid.New()
+	reporter := uuid.New()
+	projSvc.addMember(projectID, reporter, false)
+	authSvc.addUser(reporter, "Reporter", "reporter@example.com")
+	created, _ := svc.Create(context.Background(), reporter, auth.RoleEmployee, CreateRequest{ProjectID: projectID.String(), Title: "Task"})
+	taskID := mustParse(t, created.ID)
+
+	resp, err := svc.UploadAttachment(context.Background(), reporter, auth.RoleEmployee, taskID, "doc.pdf", "application/pdf", 5, strings.NewReader("hello"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.FileName != "doc.pdf" || resp.UploaderName != "Reporter" || resp.SizeBytes != 5 {
+		t.Errorf("unexpected response: %+v", resp)
+	}
+	if len(store.objects) != 1 {
+		t.Fatalf("expected exactly one stored object, got %d", len(store.objects))
+	}
+	for _, data := range store.objects {
+		if data != "hello" {
+			t.Errorf("expected uploaded bytes to be stored, got %q", data)
+		}
+	}
+
+	dl, err := svc.GetAttachmentDownloadURL(context.Background(), reporter, auth.RoleEmployee, taskID, mustParse(t, resp.ID))
+	if err != nil {
+		t.Fatalf("unexpected error getting download URL: %v", err)
+	}
+	if dl.URL == "" {
+		t.Error("expected a non-empty presigned URL")
+	}
+}
+
+func TestDeleteAttachment_RemovesRowAndObject(t *testing.T) {
+	repo := newFakeRepository()
+	projSvc := newFakeProjectService()
+	authSvc := newFakeAuthService()
+	store := newFakeStorage()
+	svc := NewService(repo, projSvc, authSvc, nil, nil, nil, store)
+
+	projectID := uuid.New()
+	reporter := uuid.New()
+	projSvc.addMember(projectID, reporter, false)
+	created, _ := svc.Create(context.Background(), reporter, auth.RoleEmployee, CreateRequest{ProjectID: projectID.String(), Title: "Task"})
+	taskID := mustParse(t, created.ID)
+
+	resp, err := svc.UploadAttachment(context.Background(), reporter, auth.RoleEmployee, taskID, "doc.pdf", "application/pdf", 5, strings.NewReader("hello"))
+	if err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	if err := svc.DeleteAttachment(context.Background(), reporter, auth.RoleEmployee, taskID, mustParse(t, resp.ID)); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(store.objects) != 0 {
+		t.Errorf("expected the object to be deleted from storage, got %v", store.objects)
+	}
+
+	remaining, _ := svc.ListAttachments(context.Background(), reporter, auth.RoleEmployee, taskID)
+	if len(remaining) != 0 {
+		t.Errorf("expected attachment row to be deleted, got %v", remaining)
+	}
+}
+
+// --- watcher tests -----------------------------------------------------
+
+func TestWatchTask_IsIdempotent(t *testing.T) {
+	repo := newFakeRepository()
+	projSvc := newFakeProjectService()
+	authSvc := newFakeAuthService()
+	svc := NewService(repo, projSvc, authSvc, nil, nil, nil, nil)
+
+	projectID := uuid.New()
+	reporter := uuid.New()
+	projSvc.addMember(projectID, reporter, false)
+	created, _ := svc.Create(context.Background(), reporter, auth.RoleEmployee, CreateRequest{ProjectID: projectID.String(), Title: "Task"})
+	taskID := mustParse(t, created.ID)
+
+	if err := svc.WatchTask(context.Background(), reporter, auth.RoleEmployee, taskID); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if err := svc.WatchTask(context.Background(), reporter, auth.RoleEmployee, taskID); err != nil {
+		t.Fatalf("unexpected error on second watch: %v", err)
+	}
+
+	watchers, err := svc.ListWatchers(context.Background(), reporter, auth.RoleEmployee, taskID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(watchers) != 1 {
+		t.Fatalf("expected exactly 1 watcher despite watching twice, got %d", len(watchers))
+	}
+}
+
+func TestUnwatchTask_RemovesWatcher(t *testing.T) {
+	repo := newFakeRepository()
+	projSvc := newFakeProjectService()
+	authSvc := newFakeAuthService()
+	svc := NewService(repo, projSvc, authSvc, nil, nil, nil, nil)
+
+	projectID := uuid.New()
+	reporter := uuid.New()
+	projSvc.addMember(projectID, reporter, false)
+	created, _ := svc.Create(context.Background(), reporter, auth.RoleEmployee, CreateRequest{ProjectID: projectID.String(), Title: "Task"})
+	taskID := mustParse(t, created.ID)
+
+	if err := svc.WatchTask(context.Background(), reporter, auth.RoleEmployee, taskID); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	if err := svc.UnwatchTask(context.Background(), reporter, auth.RoleEmployee, taskID); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	status, err := svc.GetWatchStatus(context.Background(), reporter, auth.RoleEmployee, taskID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if status.Watching {
+		t.Error("expected watching to be false after unwatch")
+	}
+}
+
+func TestGetWatchStatus_ReflectsWatchState(t *testing.T) {
+	repo := newFakeRepository()
+	projSvc := newFakeProjectService()
+	authSvc := newFakeAuthService()
+	svc := NewService(repo, projSvc, authSvc, nil, nil, nil, nil)
+
+	projectID := uuid.New()
+	reporter := uuid.New()
+	projSvc.addMember(projectID, reporter, false)
+	created, _ := svc.Create(context.Background(), reporter, auth.RoleEmployee, CreateRequest{ProjectID: projectID.String(), Title: "Task"})
+	taskID := mustParse(t, created.ID)
+
+	before, err := svc.GetWatchStatus(context.Background(), reporter, auth.RoleEmployee, taskID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if before.Watching {
+		t.Error("expected not watching before WatchTask is called")
+	}
+
+	svc.WatchTask(context.Background(), reporter, auth.RoleEmployee, taskID)
+
+	after, err := svc.GetWatchStatus(context.Background(), reporter, auth.RoleEmployee, taskID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !after.Watching {
+		t.Error("expected watching to be true after WatchTask")
 	}
 }

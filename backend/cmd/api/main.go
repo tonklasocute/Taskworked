@@ -22,6 +22,7 @@ import (
 	"github.com/khomkrittk/taskworked/backend/internal/modules/team"
 	"github.com/khomkrittk/taskworked/backend/internal/platform/cache"
 	"github.com/khomkrittk/taskworked/backend/internal/platform/database"
+	"github.com/khomkrittk/taskworked/backend/internal/platform/storage"
 	"github.com/khomkrittk/taskworked/backend/internal/realtime"
 	"github.com/robfig/cron/v3"
 )
@@ -49,6 +50,13 @@ func (h *taskNotifierHolder) NotifyAssignment(ctx context.Context, assigneeID uu
 	return h.notifier.NotifyAssignment(ctx, assigneeID, taskID, taskTitle)
 }
 
+func (h *taskNotifierHolder) NotifyComment(ctx context.Context, userID uuid.UUID, taskID, taskTitle, commentBody string) error {
+	if h.notifier == nil {
+		return nil
+	}
+	return h.notifier.NotifyComment(ctx, userID, taskID, taskTitle, commentBody)
+}
+
 // taskGamifierHolder is the same late-binding fix as taskNotifierHolder,
 // for the same reason: gamification.Service needs task.Service (for its
 // perfect-week badge check), and task.Service needs a Gamifier.
@@ -72,12 +80,23 @@ func main() {
 		&auth.User{},
 		&project.Project{}, &project.Member{},
 		&task.Task{}, &task.ChecklistItem{}, &task.Tag{}, &task.Dependency{},
+		&task.Comment{}, &task.Attachment{}, &task.Watcher{},
 		&actionplan.Goal{}, &actionplan.Milestone{},
 		&team.Department{},
 		&notification.Notification{}, &notification.Preference{},
 		&gamification.Character{}, &gamification.Badge{}, &gamification.MissionProgress{},
 	); err != nil {
 		log.Fatalf("failed to run migrations: %v", err)
+	}
+
+	// MinIO is soft-dependency: attachments degrade to a clear per-request
+	// error (see task.Service.Storage) rather than the whole API failing
+	// to start when object storage is unreachable.
+	var taskStorage task.Storage
+	if minioClient, err := storage.Connect(context.Background(), cfg.MinioEndpoint, cfg.MinioPublicEndpoint, cfg.MinioAccessKey, cfg.MinioSecretKey, cfg.MinioBucket, cfg.MinioUseSSL); err != nil {
+		log.Printf("warning: failed to connect to MinIO, attachments will be disabled: %v", err)
+	} else {
+		taskStorage = minioClient
 	}
 
 	redisClient := cache.Connect(cfg.RedisAddr, cfg.RedisPassword)
@@ -101,7 +120,7 @@ func main() {
 	taskRepo := task.NewRepository(db)
 	notifierHolder := &taskNotifierHolder{}
 	gamifierHolder := &taskGamifierHolder{}
-	taskService := task.NewService(taskRepo, projectService, &projectEventPublisher{publisher}, notifierHolder, gamifierHolder)
+	taskService := task.NewService(taskRepo, projectService, authService, &projectEventPublisher{publisher}, notifierHolder, gamifierHolder, taskStorage)
 	taskHandler := task.NewHandler(taskService)
 
 	actionPlanRepo := actionplan.NewRepository(db)
@@ -149,6 +168,9 @@ func main() {
 	trackPresence := appmiddleware.TrackPresence(redisClient)
 
 	app := fiber.New(fiber.Config{
+		// Above Fiber's 4MB default so task attachment uploads (capped at
+		// 20MB in the handler) aren't rejected before they even get there.
+		BodyLimit: 25 * 1024 * 1024,
 		ErrorHandler: func(c *fiber.Ctx, err error) error {
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"success": false, "error": "internal server error"})
 		},

@@ -36,6 +36,7 @@ services:
     volumes:
       - minio_data:/data
     ports:
+      - "9000:9000"
       - "9001:9001"
 
   api:
@@ -48,6 +49,10 @@ services:
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       MINIO_ENDPOINT: minio:9000
+      # Host a browser can reach to download attachments (presigned URLs
+      # are signed for direct browser->MinIO access, bypassing nginx/api).
+      # Override to your real public domain:9000 in production.
+      MINIO_PUBLIC_ENDPOINT: ${MINIO_PUBLIC_ENDPOINT:-localhost:9000}
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:?}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:?}
       MINIO_BUCKET: ${MINIO_BUCKET:-taskworked}

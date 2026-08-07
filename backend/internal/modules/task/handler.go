@@ -38,6 +38,20 @@ func (h *Handler) RegisterRoutes(router fiber.Router) {
 	r.Post("/:id/dependencies", h.addDependency)
 	r.Delete("/:id/dependencies/:dependsOnId", h.removeDependency)
 
+	r.Get("/:id/comments", h.listComments)
+	r.Post("/:id/comments", h.addComment)
+	r.Delete("/:id/comments/:commentId", h.deleteComment)
+
+	r.Get("/:id/attachments", h.listAttachments)
+	r.Post("/:id/attachments", h.uploadAttachment)
+	r.Get("/:id/attachments/:attachmentId/download", h.downloadAttachment)
+	r.Delete("/:id/attachments/:attachmentId", h.deleteAttachment)
+
+	r.Get("/:id/watch", h.watchStatus)
+	r.Post("/:id/watch", h.watchTask)
+	r.Delete("/:id/watch", h.unwatchTask)
+	r.Get("/:id/watchers", h.listWatchers)
+
 	router.Get("/projects/:id/gantt", h.ganttView)
 }
 
@@ -341,6 +355,233 @@ func (h *Handler) ganttView(c *fiber.Ctx) error {
 	}
 
 	result, err := h.service.GetGanttView(c.Context(), actorID, auth.Role(httpctx.ActorRole(c)), projectID)
+	if err != nil {
+		return httpctx.WriteErr(c, err)
+	}
+	return response.OK(c, result)
+}
+
+func (h *Handler) listComments(c *fiber.Ctx) error {
+	taskID, err := uuid.Parse(c.Params("id"))
+	if err != nil {
+		return response.Err(c, fiber.StatusBadRequest, "invalid task id")
+	}
+	actorID, err := httpctx.ActorID(c)
+	if err != nil {
+		return httpctx.WriteErr(c, err)
+	}
+
+	result, err := h.service.ListComments(c.Context(), actorID, auth.Role(httpctx.ActorRole(c)), taskID)
+	if err != nil {
+		return httpctx.WriteErr(c, err)
+	}
+	return response.OK(c, result)
+}
+
+func (h *Handler) addComment(c *fiber.Ctx) error {
+	taskID, err := uuid.Parse(c.Params("id"))
+	if err != nil {
+		return response.Err(c, fiber.StatusBadRequest, "invalid task id")
+	}
+	actorID, err := httpctx.ActorID(c)
+	if err != nil {
+		return httpctx.WriteErr(c, err)
+	}
+
+	var req AddCommentRequest
+	if err := c.BodyParser(&req); err != nil {
+		return response.Err(c, fiber.StatusBadRequest, "invalid request body")
+	}
+	if err := h.validate.Struct(req); err != nil {
+		return response.Err(c, fiber.StatusBadRequest, err.Error())
+	}
+
+	result, err := h.service.AddComment(c.Context(), actorID, auth.Role(httpctx.ActorRole(c)), taskID, req)
+	if err != nil {
+		return httpctx.WriteErr(c, err)
+	}
+	return response.Created(c, result)
+}
+
+func (h *Handler) deleteComment(c *fiber.Ctx) error {
+	taskID, err := uuid.Parse(c.Params("id"))
+	if err != nil {
+		return response.Err(c, fiber.StatusBadRequest, "invalid task id")
+	}
+	commentID, err := uuid.Parse(c.Params("commentId"))
+	if err != nil {
+		return response.Err(c, fiber.StatusBadRequest, "invalid comment id")
+	}
+	actorID, err := httpctx.ActorID(c)
+	if err != nil {
+		return httpctx.WriteErr(c, err)
+	}
+
+	if err := h.service.DeleteComment(c.Context(), actorID, auth.Role(httpctx.ActorRole(c)), taskID, commentID); err != nil {
+		return httpctx.WriteErr(c, err)
+	}
+	return response.OK(c, fiber.Map{"message": "comment deleted"})
+}
+
+func (h *Handler) listAttachments(c *fiber.Ctx) error {
+	taskID, err := uuid.Parse(c.Params("id"))
+	if err != nil {
+		return response.Err(c, fiber.StatusBadRequest, "invalid task id")
+	}
+	actorID, err := httpctx.ActorID(c)
+	if err != nil {
+		return httpctx.WriteErr(c, err)
+	}
+
+	result, err := h.service.ListAttachments(c.Context(), actorID, auth.Role(httpctx.ActorRole(c)), taskID)
+	if err != nil {
+		return httpctx.WriteErr(c, err)
+	}
+	return response.OK(c, result)
+}
+
+// maxAttachmentSize caps a single upload well below the server's overall
+// body limit, so a too-large file fails with a clear message from the
+// service instead of Fiber's generic body-limit rejection.
+const maxAttachmentSize = 20 * 1024 * 1024 // 20MB
+
+func (h *Handler) uploadAttachment(c *fiber.Ctx) error {
+	taskID, err := uuid.Parse(c.Params("id"))
+	if err != nil {
+		return response.Err(c, fiber.StatusBadRequest, "invalid task id")
+	}
+	actorID, err := httpctx.ActorID(c)
+	if err != nil {
+		return httpctx.WriteErr(c, err)
+	}
+
+	fileHeader, err := c.FormFile("file")
+	if err != nil {
+		return response.Err(c, fiber.StatusBadRequest, "missing file")
+	}
+	if fileHeader.Size > maxAttachmentSize {
+		return response.Err(c, fiber.StatusBadRequest, "file exceeds the 20MB limit")
+	}
+
+	file, err := fileHeader.Open()
+	if err != nil {
+		return response.Err(c, fiber.StatusBadRequest, "failed to read uploaded file")
+	}
+	defer file.Close()
+
+	contentType := fileHeader.Header.Get("Content-Type")
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+
+	result, err := h.service.UploadAttachment(c.Context(), actorID, auth.Role(httpctx.ActorRole(c)), taskID, fileHeader.Filename, contentType, fileHeader.Size, file)
+	if err != nil {
+		return httpctx.WriteErr(c, err)
+	}
+	return response.Created(c, result)
+}
+
+func (h *Handler) downloadAttachment(c *fiber.Ctx) error {
+	taskID, err := uuid.Parse(c.Params("id"))
+	if err != nil {
+		return response.Err(c, fiber.StatusBadRequest, "invalid task id")
+	}
+	attachmentID, err := uuid.Parse(c.Params("attachmentId"))
+	if err != nil {
+		return response.Err(c, fiber.StatusBadRequest, "invalid attachment id")
+	}
+	actorID, err := httpctx.ActorID(c)
+	if err != nil {
+		return httpctx.WriteErr(c, err)
+	}
+
+	result, err := h.service.GetAttachmentDownloadURL(c.Context(), actorID, auth.Role(httpctx.ActorRole(c)), taskID, attachmentID)
+	if err != nil {
+		return httpctx.WriteErr(c, err)
+	}
+	return response.OK(c, result)
+}
+
+func (h *Handler) deleteAttachment(c *fiber.Ctx) error {
+	taskID, err := uuid.Parse(c.Params("id"))
+	if err != nil {
+		return response.Err(c, fiber.StatusBadRequest, "invalid task id")
+	}
+	attachmentID, err := uuid.Parse(c.Params("attachmentId"))
+	if err != nil {
+		return response.Err(c, fiber.StatusBadRequest, "invalid attachment id")
+	}
+	actorID, err := httpctx.ActorID(c)
+	if err != nil {
+		return httpctx.WriteErr(c, err)
+	}
+
+	if err := h.service.DeleteAttachment(c.Context(), actorID, auth.Role(httpctx.ActorRole(c)), taskID, attachmentID); err != nil {
+		return httpctx.WriteErr(c, err)
+	}
+	return response.OK(c, fiber.Map{"message": "attachment deleted"})
+}
+
+func (h *Handler) watchStatus(c *fiber.Ctx) error {
+	taskID, err := uuid.Parse(c.Params("id"))
+	if err != nil {
+		return response.Err(c, fiber.StatusBadRequest, "invalid task id")
+	}
+	actorID, err := httpctx.ActorID(c)
+	if err != nil {
+		return httpctx.WriteErr(c, err)
+	}
+
+	result, err := h.service.GetWatchStatus(c.Context(), actorID, auth.Role(httpctx.ActorRole(c)), taskID)
+	if err != nil {
+		return httpctx.WriteErr(c, err)
+	}
+	return response.OK(c, result)
+}
+
+func (h *Handler) watchTask(c *fiber.Ctx) error {
+	taskID, err := uuid.Parse(c.Params("id"))
+	if err != nil {
+		return response.Err(c, fiber.StatusBadRequest, "invalid task id")
+	}
+	actorID, err := httpctx.ActorID(c)
+	if err != nil {
+		return httpctx.WriteErr(c, err)
+	}
+
+	if err := h.service.WatchTask(c.Context(), actorID, auth.Role(httpctx.ActorRole(c)), taskID); err != nil {
+		return httpctx.WriteErr(c, err)
+	}
+	return response.OK(c, fiber.Map{"message": "watching task"})
+}
+
+func (h *Handler) unwatchTask(c *fiber.Ctx) error {
+	taskID, err := uuid.Parse(c.Params("id"))
+	if err != nil {
+		return response.Err(c, fiber.StatusBadRequest, "invalid task id")
+	}
+	actorID, err := httpctx.ActorID(c)
+	if err != nil {
+		return httpctx.WriteErr(c, err)
+	}
+
+	if err := h.service.UnwatchTask(c.Context(), actorID, auth.Role(httpctx.ActorRole(c)), taskID); err != nil {
+		return httpctx.WriteErr(c, err)
+	}
+	return response.OK(c, fiber.Map{"message": "unwatched task"})
+}
+
+func (h *Handler) listWatchers(c *fiber.Ctx) error {
+	taskID, err := uuid.Parse(c.Params("id"))
+	if err != nil {
+		return response.Err(c, fiber.StatusBadRequest, "invalid task id")
+	}
+	actorID, err := httpctx.ActorID(c)
+	if err != nil {
+		return httpctx.WriteErr(c, err)
+	}
+
+	result, err := h.service.ListWatchers(c.Context(), actorID, auth.Role(httpctx.ActorRole(c)), taskID)
 	if err != nil {
 		return httpctx.WriteErr(c, err)
 	}

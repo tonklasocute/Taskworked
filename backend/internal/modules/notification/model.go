@@ -17,6 +17,7 @@ type Type string
 
 const (
 	TypeAssignment    Type = "assignment"
+	TypeComment       Type = "comment"
 	TypeDailyDigest   Type = "daily_digest"
 	TypeEODDigest     Type = "eod_digest"
 	TypeWeeklyDigest  Type = "weekly_digest"

@@ -17,41 +17,52 @@ type Config struct {
 	AccessTokenTTL   time.Duration
 	RefreshTokenTTL  time.Duration
 	AnthropicAPIKey  string
-	MinioEndpoint    string
-	MinioAccessKey   string
-	MinioSecretKey   string
-	MinioBucket      string
-	SMTPHost         string
-	SMTPPort         string
-	SMTPUser         string
-	SMTPPassword     string
-	SMTPFrom         string
-	LineNotifyToken  string
+	// MinioEndpoint is what the API process connects to (e.g. the "minio"
+	// hostname on the Docker Compose network). MinioPublicEndpoint is what
+	// a browser can reach, used only when signing attachment download
+	// URLs — falls back to MinioEndpoint when unset (local dev, where
+	// both are "localhost:9000").
+	MinioEndpoint       string
+	MinioPublicEndpoint string
+	MinioAccessKey      string
+	MinioSecretKey      string
+	MinioBucket         string
+	MinioUseSSL         bool
+	SMTPHost            string
+	SMTPPort            string
+	SMTPUser            string
+	SMTPPassword        string
+	SMTPFrom            string
+	LineNotifyToken     string
 }
 
 func Load() *Config {
 	_ = godotenv.Load()
 
+	minioEndpoint := env("MINIO_ENDPOINT", "localhost:9000")
+
 	return &Config{
-		Port:             env("PORT", "8080"),
-		DatabaseURL:      mustEnv("DATABASE_URL"),
-		RedisAddr:        env("REDIS_ADDR", "localhost:6379"),
-		RedisPassword:    env("REDIS_PASSWORD", ""),
-		JWTAccessSecret:  mustEnv("JWT_ACCESS_SECRET"),
-		JWTRefreshSecret: mustEnv("JWT_REFRESH_SECRET"),
-		AccessTokenTTL:   15 * time.Minute,
-		RefreshTokenTTL:  7 * 24 * time.Hour,
-		AnthropicAPIKey:  env("ANTHROPIC_API_KEY", ""),
-		MinioEndpoint:    env("MINIO_ENDPOINT", "localhost:9000"),
-		MinioAccessKey:   env("MINIO_ACCESS_KEY", ""),
-		MinioSecretKey:   env("MINIO_SECRET_KEY", ""),
-		MinioBucket:      env("MINIO_BUCKET", "taskworked"),
-		SMTPHost:         env("SMTP_HOST", ""),
-		SMTPPort:         env("SMTP_PORT", "587"),
-		SMTPUser:         env("SMTP_USER", ""),
-		SMTPPassword:     env("SMTP_PASSWORD", ""),
-		SMTPFrom:         env("SMTP_FROM", "noreply@taskworked.local"),
-		LineNotifyToken:  env("LINE_NOTIFY_TOKEN", ""),
+		Port:                env("PORT", "8080"),
+		DatabaseURL:         mustEnv("DATABASE_URL"),
+		RedisAddr:           env("REDIS_ADDR", "localhost:6379"),
+		RedisPassword:       env("REDIS_PASSWORD", ""),
+		JWTAccessSecret:     mustEnv("JWT_ACCESS_SECRET"),
+		JWTRefreshSecret:    mustEnv("JWT_REFRESH_SECRET"),
+		AccessTokenTTL:      15 * time.Minute,
+		RefreshTokenTTL:     7 * 24 * time.Hour,
+		AnthropicAPIKey:     env("ANTHROPIC_API_KEY", ""),
+		MinioEndpoint:       minioEndpoint,
+		MinioPublicEndpoint: env("MINIO_PUBLIC_ENDPOINT", minioEndpoint),
+		MinioAccessKey:      env("MINIO_ACCESS_KEY", ""),
+		MinioSecretKey:      env("MINIO_SECRET_KEY", ""),
+		MinioBucket:         env("MINIO_BUCKET", "taskworked"),
+		MinioUseSSL:         env("MINIO_USE_SSL", "false") == "true",
+		SMTPHost:            env("SMTP_HOST", ""),
+		SMTPPort:            env("SMTP_PORT", "587"),
+		SMTPUser:            env("SMTP_USER", ""),
+		SMTPPassword:        env("SMTP_PASSWORD", ""),
+		SMTPFrom:            env("SMTP_FROM", "noreply@taskworked.local"),
+		LineNotifyToken:     env("LINE_NOTIFY_TOKEN", ""),
 	}
 }
 

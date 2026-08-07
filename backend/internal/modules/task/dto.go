@@ -50,6 +50,44 @@ type DependencyResponse struct {
 	DependsOnTaskID string `json:"depends_on_task_id"`
 }
 
+type AddCommentRequest struct {
+	Body string `json:"body" validate:"required,min=1,max=5000"`
+}
+
+type CommentResponse struct {
+	ID         string    `json:"id"`
+	TaskID     string    `json:"task_id"`
+	AuthorID   string    `json:"author_id"`
+	AuthorName string    `json:"author_name"`
+	Body       string    `json:"body"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
+type AttachmentResponse struct {
+	ID           string    `json:"id"`
+	TaskID       string    `json:"task_id"`
+	UploaderID   string    `json:"uploader_id"`
+	UploaderName string    `json:"uploader_name"`
+	FileName     string    `json:"file_name"`
+	ContentType  string    `json:"content_type"`
+	SizeBytes    int64     `json:"size_bytes"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
+type AttachmentDownloadResponse struct {
+	URL string `json:"url"`
+}
+
+type WatcherResponse struct {
+	UserID string `json:"user_id"`
+	Name   string `json:"name"`
+	Email  string `json:"email"`
+}
+
+type WatchStatusResponse struct {
+	Watching bool `json:"watching"`
+}
+
 // GanttResponse is a read-model combining a project's tasks, their
 // dependency edges, and the computed critical path — everything the Gantt
 // view needs for one render.

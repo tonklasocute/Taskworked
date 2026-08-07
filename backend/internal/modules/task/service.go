@@ -3,6 +3,8 @@ package task
 import (
 	"context"
 	"errors"
+	"fmt"
+	"io"
 	"sort"
 	"time"
 
@@ -11,6 +13,11 @@ import (
 	"github.com/khomkrittk/taskworked/backend/internal/modules/project"
 	apperrors "github.com/khomkrittk/taskworked/backend/internal/pkg/errors"
 )
+
+// attachmentURLTTL bounds how long a presigned download link stays valid —
+// long enough for a browser to actually download after clicking, short
+// enough that a leaked link doesn't grant standing access.
+const attachmentURLTTL = 15 * time.Minute
 
 type Service interface {
 	Create(ctx context.Context, actorID uuid.UUID, actorRole auth.Role, req CreateRequest) (*Response, error)
@@ -52,6 +59,20 @@ type Service interface {
 	// caller is assigned in. No membership check — same self-scoped
 	// rationale as GetWorkload above.
 	GetMySummary(ctx context.Context, userID uuid.UUID) (*MySummaryResponse, error)
+
+	AddComment(ctx context.Context, actorID uuid.UUID, actorRole auth.Role, taskID uuid.UUID, req AddCommentRequest) (*CommentResponse, error)
+	ListComments(ctx context.Context, actorID uuid.UUID, actorRole auth.Role, taskID uuid.UUID) ([]CommentResponse, error)
+	DeleteComment(ctx context.Context, actorID uuid.UUID, actorRole auth.Role, taskID, commentID uuid.UUID) error
+
+	UploadAttachment(ctx context.Context, actorID uuid.UUID, actorRole auth.Role, taskID uuid.UUID, fileName, contentType string, size int64, r io.Reader) (*AttachmentResponse, error)
+	ListAttachments(ctx context.Context, actorID uuid.UUID, actorRole auth.Role, taskID uuid.UUID) ([]AttachmentResponse, error)
+	GetAttachmentDownloadURL(ctx context.Context, actorID uuid.UUID, actorRole auth.Role, taskID, attachmentID uuid.UUID) (*AttachmentDownloadResponse, error)
+	DeleteAttachment(ctx context.Context, actorID uuid.UUID, actorRole auth.Role, taskID, attachmentID uuid.UUID) error
+
+	WatchTask(ctx context.Context, actorID uuid.UUID, actorRole auth.Role, taskID uuid.UUID) error
+	UnwatchTask(ctx context.Context, actorID uuid.UUID, actorRole auth.Role, taskID uuid.UUID) error
+	ListWatchers(ctx context.Context, actorID uuid.UUID, actorRole auth.Role, taskID uuid.UUID) ([]WatcherResponse, error)
+	GetWatchStatus(ctx context.Context, actorID uuid.UUID, actorRole auth.Role, taskID uuid.UUID) (*WatchStatusResponse, error)
 }
 
 // EventPublisher lets the service broadcast task changes over WebSocket
@@ -76,6 +97,9 @@ type Event struct {
 // silently skipped.
 type Notifier interface {
 	NotifyAssignment(ctx context.Context, assigneeID uuid.UUID, taskID, taskTitle string) error
+	// NotifyComment fires for the task's assignee and every watcher (minus
+	// whoever posted it) when a comment is added.
+	NotifyComment(ctx context.Context, userID uuid.UUID, taskID, taskTitle, commentBody string) error
 }
 
 // Gamifier lets the service award EXP/badges/streak/mission progress when
@@ -87,16 +111,31 @@ type Gamifier interface {
 	OnTaskCompleted(ctx context.Context, userID uuid.UUID, completedAt time.Time, dueDate *time.Time, priority Priority) error
 }
 
+// Storage lets the service put/delete attachment bytes and sign download
+// URLs without importing the storage package's concrete MinIO client
+// directly — *storage.Storage satisfies this structurally. A nil storage
+// (e.g. in unit tests, or a deployment that hasn't configured MinIO) makes
+// every attachment operation fail with a clear "not configured" error
+// rather than silently no-op — unlike EventPublisher/Notifier/Gamifier,
+// attachments are the primary effect of the call, not a side effect.
+type Storage interface {
+	Upload(ctx context.Context, objectKey string, r io.Reader, size int64, contentType string) error
+	PresignedURL(ctx context.Context, objectKey string, expiry time.Duration) (string, error)
+	Delete(ctx context.Context, objectKey string) error
+}
+
 type service struct {
 	repo       Repository
 	projectSvc project.Service
+	authSvc    auth.Service
 	publisher  EventPublisher
 	notifier   Notifier
 	gamifier   Gamifier
+	storage    Storage
 }
 
-func NewService(repo Repository, projectSvc project.Service, publisher EventPublisher, notifier Notifier, gamifier Gamifier) Service {
-	return &service{repo: repo, projectSvc: projectSvc, publisher: publisher, notifier: notifier, gamifier: gamifier}
+func NewService(repo Repository, projectSvc project.Service, authSvc auth.Service, publisher EventPublisher, notifier Notifier, gamifier Gamifier, storage Storage) Service {
+	return &service{repo: repo, projectSvc: projectSvc, authSvc: authSvc, publisher: publisher, notifier: notifier, gamifier: gamifier, storage: storage}
 }
 
 func (s *service) publish(ctx context.Context, projectID uuid.UUID, event Event) {
@@ -671,6 +710,347 @@ func (s *service) GetGanttView(ctx context.Context, actorID uuid.UUID, actorRole
 		CriticalPath: criticalPathIDs,
 		ProjectDays:  projectDays,
 	}, nil
+}
+
+func (s *service) AddComment(ctx context.Context, actorID uuid.UUID, actorRole auth.Role, taskID uuid.UUID, req AddCommentRequest) (*CommentResponse, error) {
+	t, err := s.repo.FindByID(ctx, taskID)
+	if err != nil {
+		return nil, notFoundOrInternal(err)
+	}
+	if err := s.requireMembership(ctx, actorID, actorRole, t.ProjectID); err != nil {
+		return nil, err
+	}
+
+	c := &Comment{ID: uuid.New(), TaskID: taskID, AuthorID: actorID, Body: req.Body}
+	if err := s.repo.AddComment(ctx, c); err != nil {
+		return nil, apperrors.Internal("failed to add comment")
+	}
+
+	authorName := ""
+	if users, err := s.authSvc.GetUsersByIDs(ctx, []uuid.UUID{actorID}); err == nil && len(users) == 1 {
+		authorName = users[0].Name
+	}
+
+	s.notifyWatchersAndAssignee(ctx, t, actorID, func(recipient uuid.UUID) {
+		_ = s.notifier.NotifyComment(ctx, recipient, taskID.String(), t.Title, req.Body)
+	})
+
+	return &CommentResponse{
+		ID: c.ID.String(), TaskID: taskID.String(), AuthorID: actorID.String(),
+		AuthorName: authorName, Body: c.Body, CreatedAt: c.CreatedAt,
+	}, nil
+}
+
+func (s *service) ListComments(ctx context.Context, actorID uuid.UUID, actorRole auth.Role, taskID uuid.UUID) ([]CommentResponse, error) {
+	t, err := s.repo.FindByID(ctx, taskID)
+	if err != nil {
+		return nil, notFoundOrInternal(err)
+	}
+	if err := s.requireMembership(ctx, actorID, actorRole, t.ProjectID); err != nil {
+		return nil, err
+	}
+
+	comments, err := s.repo.ListComments(ctx, taskID)
+	if err != nil {
+		return nil, apperrors.Internal("failed to load comments")
+	}
+
+	ids := make([]uuid.UUID, len(comments))
+	for i, c := range comments {
+		ids[i] = c.AuthorID
+	}
+	byID, err := s.enrichUserNames(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+
+	resp := make([]CommentResponse, len(comments))
+	for i, c := range comments {
+		resp[i] = CommentResponse{
+			ID: c.ID.String(), TaskID: c.TaskID.String(), AuthorID: c.AuthorID.String(),
+			AuthorName: byID[c.AuthorID.String()].Name, Body: c.Body, CreatedAt: c.CreatedAt,
+		}
+	}
+	return resp, nil
+}
+
+func (s *service) DeleteComment(ctx context.Context, actorID uuid.UUID, actorRole auth.Role, taskID, commentID uuid.UUID) error {
+	t, err := s.repo.FindByID(ctx, taskID)
+	if err != nil {
+		return notFoundOrInternal(err)
+	}
+
+	c, err := s.repo.FindComment(ctx, commentID)
+	if err != nil || c.TaskID != taskID {
+		return apperrors.NotFound("comment not found")
+	}
+
+	if actorID == c.AuthorID {
+		if err := s.requireMembership(ctx, actorID, actorRole, t.ProjectID); err != nil {
+			return err
+		}
+	} else if err := s.requireCanEdit(ctx, actorID, actorRole, t); err != nil {
+		return err
+	}
+
+	if err := s.repo.DeleteComment(ctx, commentID); err != nil {
+		return apperrors.Internal("failed to delete comment")
+	}
+	return nil
+}
+
+func (s *service) UploadAttachment(ctx context.Context, actorID uuid.UUID, actorRole auth.Role, taskID uuid.UUID, fileName, contentType string, size int64, r io.Reader) (*AttachmentResponse, error) {
+	if s.storage == nil {
+		return nil, apperrors.Internal("file storage is not configured")
+	}
+	t, err := s.repo.FindByID(ctx, taskID)
+	if err != nil {
+		return nil, notFoundOrInternal(err)
+	}
+	if err := s.requireMembership(ctx, actorID, actorRole, t.ProjectID); err != nil {
+		return nil, err
+	}
+
+	id := uuid.New()
+	objectKey := fmt.Sprintf("tasks/%s/%s-%s", taskID, id, fileName)
+	if err := s.storage.Upload(ctx, objectKey, r, size, contentType); err != nil {
+		return nil, apperrors.Internal("failed to upload attachment")
+	}
+
+	a := &Attachment{ID: id, TaskID: taskID, UploaderID: actorID, FileName: fileName, ContentType: contentType, SizeBytes: size, ObjectKey: objectKey}
+	if err := s.repo.AddAttachment(ctx, a); err != nil {
+		_ = s.storage.Delete(ctx, objectKey) // best-effort cleanup of the now-orphaned object
+		return nil, apperrors.Internal("failed to save attachment metadata")
+	}
+
+	uploaderName := ""
+	if users, err := s.authSvc.GetUsersByIDs(ctx, []uuid.UUID{actorID}); err == nil && len(users) == 1 {
+		uploaderName = users[0].Name
+	}
+
+	// Reuses NotifyComment rather than adding a third Notifier method —
+	// from a watcher's point of view, "a file was attached" is the same
+	// kind of activity ping as "a comment was posted".
+	s.notifyWatchersAndAssignee(ctx, t, actorID, func(recipient uuid.UUID) {
+		_ = s.notifier.NotifyComment(ctx, recipient, taskID.String(), t.Title, "New attachment: "+fileName)
+	})
+
+	return &AttachmentResponse{
+		ID: a.ID.String(), TaskID: taskID.String(), UploaderID: actorID.String(), UploaderName: uploaderName,
+		FileName: a.FileName, ContentType: a.ContentType, SizeBytes: a.SizeBytes, CreatedAt: a.CreatedAt,
+	}, nil
+}
+
+func (s *service) ListAttachments(ctx context.Context, actorID uuid.UUID, actorRole auth.Role, taskID uuid.UUID) ([]AttachmentResponse, error) {
+	t, err := s.repo.FindByID(ctx, taskID)
+	if err != nil {
+		return nil, notFoundOrInternal(err)
+	}
+	if err := s.requireMembership(ctx, actorID, actorRole, t.ProjectID); err != nil {
+		return nil, err
+	}
+
+	attachments, err := s.repo.ListAttachments(ctx, taskID)
+	if err != nil {
+		return nil, apperrors.Internal("failed to load attachments")
+	}
+
+	ids := make([]uuid.UUID, len(attachments))
+	for i, a := range attachments {
+		ids[i] = a.UploaderID
+	}
+	byID, err := s.enrichUserNames(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+
+	resp := make([]AttachmentResponse, len(attachments))
+	for i, a := range attachments {
+		resp[i] = AttachmentResponse{
+			ID: a.ID.String(), TaskID: a.TaskID.String(), UploaderID: a.UploaderID.String(),
+			UploaderName: byID[a.UploaderID.String()].Name, FileName: a.FileName, ContentType: a.ContentType,
+			SizeBytes: a.SizeBytes, CreatedAt: a.CreatedAt,
+		}
+	}
+	return resp, nil
+}
+
+func (s *service) GetAttachmentDownloadURL(ctx context.Context, actorID uuid.UUID, actorRole auth.Role, taskID, attachmentID uuid.UUID) (*AttachmentDownloadResponse, error) {
+	if s.storage == nil {
+		return nil, apperrors.Internal("file storage is not configured")
+	}
+	t, err := s.repo.FindByID(ctx, taskID)
+	if err != nil {
+		return nil, notFoundOrInternal(err)
+	}
+	if err := s.requireMembership(ctx, actorID, actorRole, t.ProjectID); err != nil {
+		return nil, err
+	}
+
+	a, err := s.repo.FindAttachment(ctx, attachmentID)
+	if err != nil || a.TaskID != taskID {
+		return nil, apperrors.NotFound("attachment not found")
+	}
+
+	url, err := s.storage.PresignedURL(ctx, a.ObjectKey, attachmentURLTTL)
+	if err != nil {
+		return nil, apperrors.Internal("failed to generate download link")
+	}
+	return &AttachmentDownloadResponse{URL: url}, nil
+}
+
+func (s *service) DeleteAttachment(ctx context.Context, actorID uuid.UUID, actorRole auth.Role, taskID, attachmentID uuid.UUID) error {
+	if s.storage == nil {
+		return apperrors.Internal("file storage is not configured")
+	}
+	t, err := s.repo.FindByID(ctx, taskID)
+	if err != nil {
+		return notFoundOrInternal(err)
+	}
+
+	a, err := s.repo.FindAttachment(ctx, attachmentID)
+	if err != nil || a.TaskID != taskID {
+		return apperrors.NotFound("attachment not found")
+	}
+
+	if actorID == a.UploaderID {
+		if err := s.requireMembership(ctx, actorID, actorRole, t.ProjectID); err != nil {
+			return err
+		}
+	} else if err := s.requireCanEdit(ctx, actorID, actorRole, t); err != nil {
+		return err
+	}
+
+	if err := s.repo.DeleteAttachment(ctx, attachmentID); err != nil {
+		return apperrors.Internal("failed to delete attachment")
+	}
+	_ = s.storage.Delete(ctx, a.ObjectKey) // best-effort; metadata row is already gone
+
+	return nil
+}
+
+func (s *service) WatchTask(ctx context.Context, actorID uuid.UUID, actorRole auth.Role, taskID uuid.UUID) error {
+	t, err := s.repo.FindByID(ctx, taskID)
+	if err != nil {
+		return notFoundOrInternal(err)
+	}
+	if err := s.requireMembership(ctx, actorID, actorRole, t.ProjectID); err != nil {
+		return err
+	}
+
+	watching, err := s.repo.IsWatching(ctx, taskID, actorID)
+	if err != nil {
+		return apperrors.Internal("failed to check watch status")
+	}
+	if watching {
+		return nil
+	}
+	if err := s.repo.AddWatcher(ctx, &Watcher{TaskID: taskID, UserID: actorID}); err != nil {
+		return apperrors.Internal("failed to watch task")
+	}
+	return nil
+}
+
+func (s *service) UnwatchTask(ctx context.Context, actorID uuid.UUID, actorRole auth.Role, taskID uuid.UUID) error {
+	t, err := s.repo.FindByID(ctx, taskID)
+	if err != nil {
+		return notFoundOrInternal(err)
+	}
+	if err := s.requireMembership(ctx, actorID, actorRole, t.ProjectID); err != nil {
+		return err
+	}
+	if err := s.repo.RemoveWatcher(ctx, taskID, actorID); err != nil {
+		return apperrors.Internal("failed to unwatch task")
+	}
+	return nil
+}
+
+func (s *service) ListWatchers(ctx context.Context, actorID uuid.UUID, actorRole auth.Role, taskID uuid.UUID) ([]WatcherResponse, error) {
+	t, err := s.repo.FindByID(ctx, taskID)
+	if err != nil {
+		return nil, notFoundOrInternal(err)
+	}
+	if err := s.requireMembership(ctx, actorID, actorRole, t.ProjectID); err != nil {
+		return nil, err
+	}
+
+	watchers, err := s.repo.ListWatchers(ctx, taskID)
+	if err != nil {
+		return nil, apperrors.Internal("failed to load watchers")
+	}
+
+	ids := make([]uuid.UUID, len(watchers))
+	for i, w := range watchers {
+		ids[i] = w.UserID
+	}
+	byID, err := s.enrichUserNames(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+
+	resp := make([]WatcherResponse, len(watchers))
+	for i, w := range watchers {
+		u := byID[w.UserID.String()]
+		resp[i] = WatcherResponse{UserID: w.UserID.String(), Name: u.Name, Email: u.Email}
+	}
+	return resp, nil
+}
+
+func (s *service) GetWatchStatus(ctx context.Context, actorID uuid.UUID, actorRole auth.Role, taskID uuid.UUID) (*WatchStatusResponse, error) {
+	t, err := s.repo.FindByID(ctx, taskID)
+	if err != nil {
+		return nil, notFoundOrInternal(err)
+	}
+	if err := s.requireMembership(ctx, actorID, actorRole, t.ProjectID); err != nil {
+		return nil, err
+	}
+
+	watching, err := s.repo.IsWatching(ctx, taskID, actorID)
+	if err != nil {
+		return nil, apperrors.Internal("failed to check watch status")
+	}
+	return &WatchStatusResponse{Watching: watching}, nil
+}
+
+// enrichUserNames batch-resolves user IDs to name/email for list responses
+// (comments, attachments, watchers), the same fan-out pattern
+// project.Service.ListMembers uses for member details.
+func (s *service) enrichUserNames(ctx context.Context, ids []uuid.UUID) (map[string]auth.UserResponse, error) {
+	if len(ids) == 0 {
+		return map[string]auth.UserResponse{}, nil
+	}
+	users, err := s.authSvc.GetUsersByIDs(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	byID := make(map[string]auth.UserResponse, len(users))
+	for _, u := range users {
+		byID[u.ID] = u
+	}
+	return byID, nil
+}
+
+// notifyWatchersAndAssignee best-effort-notifies the task's assignee and
+// every watcher, excluding whoever triggered the event. A nil notifier
+// (unit tests) makes this a no-op.
+func (s *service) notifyWatchersAndAssignee(ctx context.Context, t *Task, actorID uuid.UUID, notify func(recipient uuid.UUID)) {
+	if s.notifier == nil {
+		return
+	}
+	recipients := make(map[uuid.UUID]struct{})
+	if t.AssigneeID != nil && *t.AssigneeID != actorID {
+		recipients[*t.AssigneeID] = struct{}{}
+	}
+	if watchers, err := s.repo.ListWatchers(ctx, t.ID); err == nil {
+		for _, w := range watchers {
+			if w.UserID != actorID {
+				recipients[w.UserID] = struct{}{}
+			}
+		}
+	}
+	for id := range recipients {
+		notify(id)
+	}
 }
 
 // requireMembership allows any project member (or org admin) to read.

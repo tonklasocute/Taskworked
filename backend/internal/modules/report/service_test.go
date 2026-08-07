@@ -3,6 +3,7 @@ package report
 import (
 	"context"
 	"encoding/csv"
+	"io"
 	"strings"
 	"testing"
 	"time"
@@ -108,6 +109,39 @@ func (f *fakeTaskService) RemoveDependency(context.Context, uuid.UUID, auth.Role
 	panic("not implemented")
 }
 func (f *fakeTaskService) GetGanttView(context.Context, uuid.UUID, auth.Role, uuid.UUID) (*task.GanttResponse, error) {
+	panic("not implemented")
+}
+func (f *fakeTaskService) AddComment(context.Context, uuid.UUID, auth.Role, uuid.UUID, task.AddCommentRequest) (*task.CommentResponse, error) {
+	panic("not implemented")
+}
+func (f *fakeTaskService) ListComments(context.Context, uuid.UUID, auth.Role, uuid.UUID) ([]task.CommentResponse, error) {
+	panic("not implemented")
+}
+func (f *fakeTaskService) DeleteComment(context.Context, uuid.UUID, auth.Role, uuid.UUID, uuid.UUID) error {
+	panic("not implemented")
+}
+func (f *fakeTaskService) UploadAttachment(context.Context, uuid.UUID, auth.Role, uuid.UUID, string, string, int64, io.Reader) (*task.AttachmentResponse, error) {
+	panic("not implemented")
+}
+func (f *fakeTaskService) ListAttachments(context.Context, uuid.UUID, auth.Role, uuid.UUID) ([]task.AttachmentResponse, error) {
+	panic("not implemented")
+}
+func (f *fakeTaskService) GetAttachmentDownloadURL(context.Context, uuid.UUID, auth.Role, uuid.UUID, uuid.UUID) (*task.AttachmentDownloadResponse, error) {
+	panic("not implemented")
+}
+func (f *fakeTaskService) DeleteAttachment(context.Context, uuid.UUID, auth.Role, uuid.UUID, uuid.UUID) error {
+	panic("not implemented")
+}
+func (f *fakeTaskService) WatchTask(context.Context, uuid.UUID, auth.Role, uuid.UUID) error {
+	panic("not implemented")
+}
+func (f *fakeTaskService) UnwatchTask(context.Context, uuid.UUID, auth.Role, uuid.UUID) error {
+	panic("not implemented")
+}
+func (f *fakeTaskService) ListWatchers(context.Context, uuid.UUID, auth.Role, uuid.UUID) ([]task.WatcherResponse, error) {
+	panic("not implemented")
+}
+func (f *fakeTaskService) GetWatchStatus(context.Context, uuid.UUID, auth.Role, uuid.UUID) (*task.WatchStatusResponse, error) {
 	panic("not implemented")
 }
 func (f *fakeTaskService) GetWorkload(context.Context, uuid.UUID) (int64, error) {

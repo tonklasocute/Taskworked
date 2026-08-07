@@ -45,6 +45,21 @@ type Repository interface {
 	// across every project, for one user.
 	ListActiveByAssignee(ctx context.Context, assigneeID uuid.UUID) ([]Task, error)
 	ListCompletedByAssigneeSince(ctx context.Context, assigneeID uuid.UUID, since time.Time) ([]Task, error)
+
+	AddComment(ctx context.Context, c *Comment) error
+	ListComments(ctx context.Context, taskID uuid.UUID) ([]Comment, error)
+	FindComment(ctx context.Context, id uuid.UUID) (*Comment, error)
+	DeleteComment(ctx context.Context, id uuid.UUID) error
+
+	AddAttachment(ctx context.Context, a *Attachment) error
+	ListAttachments(ctx context.Context, taskID uuid.UUID) ([]Attachment, error)
+	FindAttachment(ctx context.Context, id uuid.UUID) (*Attachment, error)
+	DeleteAttachment(ctx context.Context, id uuid.UUID) error
+
+	AddWatcher(ctx context.Context, w *Watcher) error
+	RemoveWatcher(ctx context.Context, taskID, userID uuid.UUID) error
+	ListWatchers(ctx context.Context, taskID uuid.UUID) ([]Watcher, error)
+	IsWatching(ctx context.Context, taskID, userID uuid.UUID) (bool, error)
 }
 
 type repository struct {
@@ -216,4 +231,76 @@ func (r *repository) ListCompletedByAssigneeSince(ctx context.Context, assigneeI
 		Order("completed_at DESC").
 		Find(&tasks).Error
 	return tasks, err
+}
+
+func (r *repository) AddComment(ctx context.Context, c *Comment) error {
+	return r.db.WithContext(ctx).Create(c).Error
+}
+
+func (r *repository) ListComments(ctx context.Context, taskID uuid.UUID) ([]Comment, error) {
+	var comments []Comment
+	err := r.db.WithContext(ctx).Where("task_id = ?", taskID).Order("created_at ASC").Find(&comments).Error
+	return comments, err
+}
+
+func (r *repository) FindComment(ctx context.Context, id uuid.UUID) (*Comment, error) {
+	var c Comment
+	err := r.db.WithContext(ctx).First(&c, "id = ?", id).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &c, nil
+}
+
+func (r *repository) DeleteComment(ctx context.Context, id uuid.UUID) error {
+	return r.db.WithContext(ctx).Delete(&Comment{}, "id = ?", id).Error
+}
+
+func (r *repository) AddAttachment(ctx context.Context, a *Attachment) error {
+	return r.db.WithContext(ctx).Create(a).Error
+}
+
+func (r *repository) ListAttachments(ctx context.Context, taskID uuid.UUID) ([]Attachment, error) {
+	var attachments []Attachment
+	err := r.db.WithContext(ctx).Where("task_id = ?", taskID).Order("created_at ASC").Find(&attachments).Error
+	return attachments, err
+}
+
+func (r *repository) FindAttachment(ctx context.Context, id uuid.UUID) (*Attachment, error) {
+	var a Attachment
+	err := r.db.WithContext(ctx).First(&a, "id = ?", id).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &a, nil
+}
+
+func (r *repository) DeleteAttachment(ctx context.Context, id uuid.UUID) error {
+	return r.db.WithContext(ctx).Delete(&Attachment{}, "id = ?", id).Error
+}
+
+func (r *repository) AddWatcher(ctx context.Context, w *Watcher) error {
+	return r.db.WithContext(ctx).Create(w).Error
+}
+
+func (r *repository) RemoveWatcher(ctx context.Context, taskID, userID uuid.UUID) error {
+	return r.db.WithContext(ctx).Delete(&Watcher{}, "task_id = ? AND user_id = ?", taskID, userID).Error
+}
+
+func (r *repository) ListWatchers(ctx context.Context, taskID uuid.UUID) ([]Watcher, error) {
+	var watchers []Watcher
+	err := r.db.WithContext(ctx).Where("task_id = ?", taskID).Order("created_at ASC").Find(&watchers).Error
+	return watchers, err
+}
+
+func (r *repository) IsWatching(ctx context.Context, taskID, userID uuid.UUID) (bool, error) {
+	var count int64
+	err := r.db.WithContext(ctx).Model(&Watcher{}).Where("task_id = ? AND user_id = ?", taskID, userID).Count(&count).Error
+	return count > 0, err
 }

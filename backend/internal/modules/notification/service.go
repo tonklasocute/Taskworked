@@ -54,10 +54,12 @@ type Service interface {
 	GetPreference(ctx context.Context, actorID uuid.UUID) (*PreferenceResponse, error)
 	UpdatePreference(ctx context.Context, actorID uuid.UUID, req UpdatePreferenceRequest) (*PreferenceResponse, error)
 
-	// NotifyAssignment satisfies task.Notifier structurally — task.Service
-	// calls this through that local interface, never importing this
-	// package directly (see the package doc comment in model.go).
+	// NotifyAssignment and NotifyComment satisfy task.Notifier
+	// structurally — task.Service calls these through that local
+	// interface, never importing this package directly (see the package
+	// doc comment in model.go).
 	NotifyAssignment(ctx context.Context, assigneeID uuid.UUID, taskID, taskTitle string) error
+	NotifyComment(ctx context.Context, userID uuid.UUID, taskID, taskTitle, commentBody string) error
 
 	// The four digests are invoked by cron (see cmd/api/main.go). Each
 	// silently skips a user who has nothing to report — no empty digests.
@@ -166,6 +168,15 @@ func (s *service) getOrDefaultPreference(ctx context.Context, userID uuid.UUID) 
 
 func (s *service) NotifyAssignment(ctx context.Context, assigneeID uuid.UUID, taskID, taskTitle string) error {
 	return s.notify(ctx, assigneeID, TypeAssignment, "You were assigned a task", taskTitle, "/tasks/"+taskID)
+}
+
+func (s *service) NotifyComment(ctx context.Context, userID uuid.UUID, taskID, taskTitle, commentBody string) error {
+	preview := commentBody
+	const maxPreview = 200
+	if len(preview) > maxPreview {
+		preview = preview[:maxPreview] + "…"
+	}
+	return s.notify(ctx, userID, TypeComment, "New activity on \""+taskTitle+"\"", preview, "/tasks/"+taskID)
 }
 
 // notify persists, broadcasts, and (per preference) emails/LINEs a single

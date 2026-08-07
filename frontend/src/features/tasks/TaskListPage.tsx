@@ -6,6 +6,7 @@ import { getProject } from "@/features/projects/api";
 import type { TaskPriority, TaskStatus } from "@/features/tasks/types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import TaskDetailModal from "@/features/tasks/TaskDetailModal";
 
 const STATUSES: TaskStatus[] = ["backlog", "todo", "doing", "review", "testing", "done", "blocked"];
 const STATUS_LABEL: Record<TaskStatus, string> = {
@@ -30,6 +31,7 @@ export default function TaskListPage() {
   const [showForm, setShowForm] = useState(false);
   const [title, setTitle] = useState("");
   const [priority, setPriority] = useState<TaskPriority>("medium");
+  const [openTaskId, setOpenTaskId] = useState<string | null>(null);
 
   const { data: project } = useQuery({
     queryKey: ["project", projectId],
@@ -132,12 +134,12 @@ export default function TaskListPage() {
         {tasks?.items.map((t) => (
           <Card key={t.id}>
             <CardContent className="flex flex-wrap items-center justify-between gap-3 py-4">
-              <div>
-                <p className="font-medium">{t.title}</p>
+              <button className="text-left" onClick={() => setOpenTaskId(t.id)}>
+                <p className="font-medium hover:underline">{t.title}</p>
                 <span className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${PRIORITY_COLOR[t.priority]}`}>
                   {t.priority}
                 </span>
-              </div>
+              </button>
               <select
                 value={t.status}
                 onChange={(e) => statusMutation.mutate({ id: t.id, status: e.target.value as TaskStatus })}
@@ -153,6 +155,8 @@ export default function TaskListPage() {
           </Card>
         ))}
       </div>
+
+      {openTaskId && <TaskDetailModal taskId={openTaskId} onClose={() => setOpenTaskId(null)} />}
     </div>
   );
 }

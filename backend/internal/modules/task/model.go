@@ -83,3 +83,35 @@ type Dependency struct {
 	DependsOnID uuid.UUID `gorm:"type:uuid;primaryKey"`
 	CreatedAt   time.Time
 }
+
+type Comment struct {
+	ID        uuid.UUID `gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
+	TaskID    uuid.UUID `gorm:"type:uuid;not null;index"`
+	AuthorID  uuid.UUID `gorm:"type:uuid;not null"`
+	Body      string    `gorm:"not null"`
+	CreatedAt time.Time
+}
+
+// Attachment stores metadata only — the file bytes live in the object
+// store (MinIO) under ObjectKey. Deleting an Attachment row without also
+// removing the object would leak storage; the service deletes both
+// together (see service.DeleteAttachment).
+type Attachment struct {
+	ID          uuid.UUID `gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
+	TaskID      uuid.UUID `gorm:"type:uuid;not null;index"`
+	UploaderID  uuid.UUID `gorm:"type:uuid;not null"`
+	FileName    string    `gorm:"not null"`
+	ContentType string    `gorm:"not null"`
+	SizeBytes   int64     `gorm:"not null"`
+	ObjectKey   string    `gorm:"not null"`
+	CreatedAt   time.Time
+}
+
+// Watcher is a task a user opted into notifications for, independent of
+// being the assignee or reporter. Composite key: a user watches a given
+// task at most once.
+type Watcher struct {
+	TaskID    uuid.UUID `gorm:"type:uuid;primaryKey"`
+	UserID    uuid.UUID `gorm:"type:uuid;primaryKey"`
+	CreatedAt time.Time
+}

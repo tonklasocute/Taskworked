@@ -1,4 +1,4 @@
-export type NotificationType = "assignment" | "daily_digest" | "eod_digest" | "weekly_digest" | "monthly_digest";
+export type NotificationType = "assignment" | "comment" | "daily_digest" | "eod_digest" | "weekly_digest" | "monthly_digest";
 
 export interface NotificationItem {
   id: string;
