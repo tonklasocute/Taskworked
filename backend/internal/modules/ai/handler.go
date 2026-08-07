@@ -1,8 +1,8 @@
 package ai
 
 import (
-	"github.com/gofiber/fiber/v2"
 	"github.com/go-playground/validator/v10"
+	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"github.com/khomkrittk/taskworked/backend/internal/modules/auth"
 	"github.com/khomkrittk/taskworked/backend/internal/pkg/httpctx"
