@@ -17,6 +17,7 @@ import (
 	"github.com/robfig/cron/v3"
 	"gorm.io/gorm"
 
+	"github.com/khomkrittk/taskworked/backend/docs"
 	"github.com/khomkrittk/taskworked/backend/internal/config"
 	appmiddleware "github.com/khomkrittk/taskworked/backend/internal/middleware"
 	"github.com/khomkrittk/taskworked/backend/internal/modules/actionplan"
@@ -73,6 +74,29 @@ func (h *taskGamifierHolder) OnTaskCompleted(ctx context.Context, userID uuid.UU
 	}
 	return h.gamifier.OnTaskCompleted(ctx, userID, completedAt, dueDate, priority)
 }
+
+// swaggerUIPage loads Swagger UI from a CDN (no npm bundle needed on the
+// Go side) pointed at the embedded spec served next to it.
+const swaggerUIPage = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Taskworked API Docs</title>
+  <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css">
+</head>
+<body>
+  <div id="swagger-ui"></div>
+  <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+  <script>
+    window.onload = () => {
+      window.ui = SwaggerUIBundle({
+        url: "/docs/openapi.yaml",
+        dom_id: "#swagger-ui",
+      });
+    };
+  </script>
+</body>
+</html>`
 
 // Migrate runs AutoMigrate for every module's models. Callers own the
 // database connection (main connects to the configured DATABASE_URL; the
@@ -192,6 +216,17 @@ func New(cfg *config.Config, db *gorm.DB, redisClient *redis.Client) *App {
 
 	app.Get("/health", func(c *fiber.Ctx) error {
 		return c.JSON(fiber.Map{"status": "ok"})
+	})
+
+	// API docs are public, same as /health — they describe the API's
+	// shape, not its data, matching common practice for a docs endpoint.
+	app.Get("/docs/openapi.yaml", func(c *fiber.Ctx) error {
+		c.Set(fiber.HeaderContentType, "application/yaml")
+		return c.Send(docs.OpenAPISpec)
+	})
+	app.Get("/docs", func(c *fiber.Ctx) error {
+		c.Set(fiber.HeaderContentType, fiber.MIMETextHTMLCharsetUTF8)
+		return c.SendString(swaggerUIPage)
 	})
 
 	api := app.Group("/api/v1")

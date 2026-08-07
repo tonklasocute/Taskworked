@@ -1,0 +1,1934 @@
+openapi: 3.0.3
+info:
+  title: Taskworked API
+  description: >
+    Enterprise task management platform — Auth/RBAC, Projects, Tasks
+    (with Kanban/Calendar/Gantt views, checklists, tags, dependencies,
+    comments, attachments, watchers), Action Plans, Reports, Team
+    directory, Notifications, Gamification, and an AI Assistant backed by
+    the Claude API. Every response is wrapped in the same envelope:
+    `{"success": bool, "data"?: <T>, "error"?: string}`.
+  version: "1.0.0"
+servers:
+  - url: /api/v1
+security:
+  - BearerAuth: []
+tags:
+  - name: Auth
+    description: Registration, login, session refresh, and the org-wide user directory/roles.
+  - name: Projects
+    description: Projects and their membership.
+  - name: Tasks
+    description: Tasks, checklists, tags, dependencies, comments, attachments, and watchers.
+  - name: Action Plan
+    description: Goal -> Milestone -> Task roadmap hierarchy.
+  - name: Reports
+    description: Period analytics derived from a project's tasks.
+  - name: Team
+    description: Org directory (presence, workload) and departments.
+  - name: Notifications
+    description: In-app notifications and delivery preferences.
+  - name: Gamification
+    description: EXP/levels/badges/missions/leaderboards.
+  - name: AI Assistant
+    description: Claude-backed task generation, summaries, and suggestions.
+
+paths:
+  # ---------------------------------------------------------------- Auth
+  /auth/register:
+    post:
+      tags: [Auth]
+      summary: Register a new account
+      description: >
+        The very first account ever registered on the system is
+        automatically granted `super_admin` (first-admin bootstrap); every
+        account after that starts as `employee`.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RegisterRequest' }
+      responses:
+        '201': { $ref: '#/components/responses/AuthResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Log in with email and password
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/AuthResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Exchange a refresh token for a new access/refresh token pair
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RefreshRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/AuthResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: Revoke the caller's refresh token
+      responses:
+        '200': { $ref: '#/components/responses/MessageOK' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /users:
+    get:
+      tags: [Auth]
+      summary: List every user in the org (the directory)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/UserResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /users/{id}/role:
+    patch:
+      tags: [Auth]
+      summary: Change a user's org role (admin only)
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateRoleRequest' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties: { data: { $ref: '#/components/schemas/UserResponse' } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /users/{id}/department:
+    patch:
+      tags: [Auth]
+      summary: Assign or clear a user's department (admin only)
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateDepartmentRequest' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties: { data: { $ref: '#/components/schemas/UserResponse' } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  # ------------------------------------------------------------ Projects
+  /projects:
+    post:
+      tags: [Projects]
+      summary: Create a project (caller becomes owner)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProjectCreateRequest' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties: { data: { $ref: '#/components/schemas/ProjectResponse' } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+    get:
+      tags: [Projects]
+      summary: List projects the caller is a member of
+      parameters:
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/ProjectStatus' }
+        - name: search
+          in: query
+          schema: { type: string }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties: { data: { $ref: '#/components/schemas/ProjectListResponse' } }
+
+  /projects/{id}:
+    get:
+      tags: [Projects]
+      summary: Get a project by ID
+      parameters: [{ $ref: '#/components/parameters/ProjectId' }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties: { data: { $ref: '#/components/schemas/ProjectResponse' } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Projects]
+      summary: Update a project (owner or org admin)
+      parameters: [{ $ref: '#/components/parameters/ProjectId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProjectUpdateRequest' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties: { data: { $ref: '#/components/schemas/ProjectResponse' } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    delete:
+      tags: [Projects]
+      summary: Delete a project (owner or org admin)
+      parameters: [{ $ref: '#/components/parameters/ProjectId' }]
+      responses:
+        '200': { $ref: '#/components/responses/MessageOK' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /projects/{id}/members:
+    post:
+      tags: [Projects]
+      summary: Add a member to a project (owner or org admin)
+      parameters: [{ $ref: '#/components/parameters/ProjectId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AddMemberRequest' }
+      responses:
+        '201': { $ref: '#/components/responses/MessageCreated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    get:
+      tags: [Projects]
+      summary: List a project's members, enriched with name/email
+      parameters: [{ $ref: '#/components/parameters/ProjectId' }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/ProjectMemberDetail' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /projects/{id}/members/{userId}:
+    delete:
+      tags: [Projects]
+      summary: Remove a member from a project (owner or org admin)
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+        - name: userId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { $ref: '#/components/responses/MessageOK' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  # ---------------------------------------------------------------- Tasks
+  /tasks:
+    post:
+      tags: [Tasks]
+      summary: Create a task
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TaskCreateRequest' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties: { data: { $ref: '#/components/schemas/TaskResponse' } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    get:
+      tags: [Tasks]
+      summary: List tasks in a project (paginated, filterable)
+      parameters:
+        - name: project_id
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/TaskStatus' }
+        - name: priority
+          in: query
+          schema: { $ref: '#/components/schemas/TaskPriority' }
+        - name: assignee_id
+          in: query
+          schema: { type: string, format: uuid }
+        - name: search
+          in: query
+          schema: { type: string }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties: { data: { $ref: '#/components/schemas/TaskListResponse' } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /tasks/my-summary:
+    get:
+      tags: [Tasks]
+      summary: The caller's own active/overdue/due-soon task summary (Dashboard widget)
+      description: Cross-project, self-scoped — no project_id needed.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties: { data: { $ref: '#/components/schemas/MySummaryResponse' } }
+
+  /tasks/{id}:
+    get:
+      tags: [Tasks]
+      summary: Get a task by ID
+      parameters: [{ $ref: '#/components/parameters/TaskId' }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties: { data: { $ref: '#/components/schemas/TaskResponse' } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Tasks]
+      summary: Update a task (assignee, reporter, project manager, or org admin)
+      parameters: [{ $ref: '#/components/parameters/TaskId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TaskUpdateRequest' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties: { data: { $ref: '#/components/schemas/TaskResponse' } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    delete:
+      tags: [Tasks]
+      summary: Delete a task (assignee, reporter, project manager, or org admin)
+      parameters: [{ $ref: '#/components/parameters/TaskId' }]
+      responses:
+        '200': { $ref: '#/components/responses/MessageOK' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /tasks/{id}/tags:
+    put:
+      tags: [Tasks]
+      summary: Replace a task's tags (full replace, not a merge)
+      parameters: [{ $ref: '#/components/parameters/TaskId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SetTagsRequest' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          tags: { type: array, items: { type: string } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /tasks/{id}/checklist:
+    get:
+      tags: [Tasks]
+      summary: List a task's checklist items
+      parameters: [{ $ref: '#/components/parameters/TaskId' }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/ChecklistItemResponse' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Tasks]
+      summary: Add a checklist item
+      parameters: [{ $ref: '#/components/parameters/TaskId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AddChecklistItemRequest' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties: { data: { $ref: '#/components/schemas/ChecklistItemResponse' } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /tasks/{id}/checklist/{itemId}:
+    patch:
+      tags: [Tasks]
+      summary: Update a checklist item's text and/or done state
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+        - name: itemId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateChecklistItemRequest' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties: { data: { $ref: '#/components/schemas/ChecklistItemResponse' } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Tasks]
+      summary: Delete a checklist item
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+        - name: itemId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { $ref: '#/components/responses/MessageOK' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /tasks/{id}/dependencies:
+    post:
+      tags: [Tasks]
+      summary: Add a finish-to-start dependency (this task depends on another)
+      parameters: [{ $ref: '#/components/parameters/TaskId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AddDependencyRequest' }
+      responses:
+        '201': { $ref: '#/components/responses/MessageCreated' }
+        '400':
+          description: Invalid request, or the dependency would create a cycle
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /tasks/{id}/dependencies/{dependsOnId}:
+    delete:
+      tags: [Tasks]
+      summary: Remove a dependency
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+        - name: dependsOnId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { $ref: '#/components/responses/MessageOK' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /tasks/{id}/comments:
+    get:
+      tags: [Tasks]
+      summary: List a task's comments (author-enriched, oldest first)
+      parameters: [{ $ref: '#/components/parameters/TaskId' }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/CommentResponse' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Tasks]
+      summary: Add a comment
+      description: Notifies the task's assignee and every watcher (excluding the author).
+      parameters: [{ $ref: '#/components/parameters/TaskId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AddCommentRequest' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties: { data: { $ref: '#/components/schemas/CommentResponse' } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /tasks/{id}/comments/{commentId}:
+    delete:
+      tags: [Tasks]
+      summary: Delete a comment (author, or assignee/reporter/project manager/org admin)
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+        - name: commentId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { $ref: '#/components/responses/MessageOK' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /tasks/{id}/attachments:
+    get:
+      tags: [Tasks]
+      summary: List a task's attachments (uploader-enriched)
+      parameters: [{ $ref: '#/components/parameters/TaskId' }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/AttachmentResponse' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Tasks]
+      summary: Upload a file attachment (multipart/form-data, 20MB max)
+      description: Stored in MinIO/S3. Notifies the task's assignee and watchers, same as a comment.
+      parameters: [{ $ref: '#/components/parameters/TaskId' }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file: { type: string, format: binary }
+              required: [file]
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties: { data: { $ref: '#/components/schemas/AttachmentResponse' } }
+        '400':
+          description: Missing file, file too large, or object storage is not configured
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /tasks/{id}/attachments/{attachmentId}/download:
+    get:
+      tags: [Tasks]
+      summary: Get a short-lived (15 minute) presigned download URL
+      description: The URL points directly at the object store — the browser downloads from there, not through the API.
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+        - name: attachmentId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties: { data: { $ref: '#/components/schemas/AttachmentDownloadResponse' } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /tasks/{id}/attachments/{attachmentId}:
+    delete:
+      tags: [Tasks]
+      summary: Delete an attachment (uploader, or assignee/reporter/project manager/org admin)
+      description: Removes both the metadata row and the underlying object in storage.
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+        - name: attachmentId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { $ref: '#/components/responses/MessageOK' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /tasks/{id}/watch:
+    get:
+      tags: [Tasks]
+      summary: Whether the caller is currently watching this task
+      parameters: [{ $ref: '#/components/parameters/TaskId' }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties: { data: { $ref: '#/components/schemas/WatchStatusResponse' } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Tasks]
+      summary: Watch this task (idempotent)
+      parameters: [{ $ref: '#/components/parameters/TaskId' }]
+      responses:
+        '200': { $ref: '#/components/responses/MessageOK' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    delete:
+      tags: [Tasks]
+      summary: Unwatch this task
+      parameters: [{ $ref: '#/components/parameters/TaskId' }]
+      responses:
+        '200': { $ref: '#/components/responses/MessageOK' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /tasks/{id}/watchers:
+    get:
+      tags: [Tasks]
+      summary: List everyone watching this task
+      parameters: [{ $ref: '#/components/parameters/TaskId' }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/WatcherResponse' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /projects/{id}/gantt:
+    get:
+      tags: [Tasks]
+      summary: Gantt view — every task in the project, dependency edges, and the computed critical path
+      parameters: [{ $ref: '#/components/parameters/ProjectId' }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties: { data: { $ref: '#/components/schemas/GanttResponse' } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  # ------------------------------------------------------------ Action Plan
+  /goals:
+    post:
+      tags: [Action Plan]
+      summary: Create a goal under a project
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/GoalCreateRequest' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties: { data: { $ref: '#/components/schemas/GoalResponse' } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /goals/{id}:
+    patch:
+      tags: [Action Plan]
+      summary: Update a goal
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/GoalUpdateRequest' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties: { data: { $ref: '#/components/schemas/GoalResponse' } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    delete:
+      tags: [Action Plan]
+      summary: Delete a goal (cascades to its milestones)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { $ref: '#/components/responses/MessageOK' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /milestones:
+    post:
+      tags: [Action Plan]
+      summary: Create a milestone under a goal
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MilestoneCreateRequest' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties: { data: { $ref: '#/components/schemas/MilestoneResponse' } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /milestones/{id}:
+    patch:
+      tags: [Action Plan]
+      summary: Update a milestone
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MilestoneUpdateRequest' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties: { data: { $ref: '#/components/schemas/MilestoneResponse' } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    delete:
+      tags: [Action Plan]
+      summary: Delete a milestone
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { $ref: '#/components/responses/MessageOK' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /projects/{id}/action-plan:
+    get:
+      tags: [Action Plan]
+      summary: Full Goal -> Milestone -> Task (-> Subtask) tree for a project
+      parameters: [{ $ref: '#/components/parameters/ProjectId' }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties: { data: { $ref: '#/components/schemas/ActionPlanView' } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  # ---------------------------------------------------------------- Reports
+  /projects/{id}/reports:
+    get:
+      tags: [Reports]
+      summary: Period report — completion stats, late tasks, per-assignee performance, productivity trend
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+        - name: period
+          in: query
+          description: Preset date range. Ignored if `from`/`to` are both given.
+          schema: { type: string, enum: [week, month], default: week }
+        - name: from
+          in: query
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties: { data: { $ref: '#/components/schemas/PeriodReport' } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /projects/{id}/reports/export.csv:
+    get:
+      tags: [Reports]
+      summary: Export every task currently in the project as CSV
+      description: Unlike the period report, this is a full reference table, not scoped to a date range.
+      parameters: [{ $ref: '#/components/parameters/ProjectId' }]
+      responses:
+        '200':
+          description: CSV file
+          content:
+            text/csv:
+              schema: { type: string, format: binary }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  # ------------------------------------------------------------------ Team
+  /team:
+    get:
+      tags: [Team]
+      summary: Org directory — every user enriched with department, online status, and workload
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties: { data: { $ref: '#/components/schemas/DirectoryResponse' } }
+
+  /departments:
+    post:
+      tags: [Team]
+      summary: Create a department (admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateDepartmentRequest' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties: { data: { $ref: '#/components/schemas/DepartmentResponse' } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /departments/{id}:
+    delete:
+      tags: [Team]
+      summary: Delete a department (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { $ref: '#/components/responses/MessageOK' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  # --------------------------------------------------------- Notifications
+  /notifications:
+    get:
+      tags: [Notifications]
+      summary: List the caller's notifications, newest first, with unread count
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties: { data: { $ref: '#/components/schemas/NotificationListResponse' } }
+
+  /notifications/{id}/read:
+    post:
+      tags: [Notifications]
+      summary: Mark one notification as read
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { $ref: '#/components/responses/MessageOK' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /notifications/read-all:
+    post:
+      tags: [Notifications]
+      summary: Mark every one of the caller's notifications as read
+      responses:
+        '200': { $ref: '#/components/responses/MessageOK' }
+
+  /notification-preferences:
+    get:
+      tags: [Notifications]
+      summary: Get the caller's delivery preferences (email/LINE)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties: { data: { $ref: '#/components/schemas/PreferenceResponse' } }
+    patch:
+      tags: [Notifications]
+      summary: Update the caller's delivery preferences
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdatePreferenceRequest' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties: { data: { $ref: '#/components/schemas/PreferenceResponse' } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  # -------------------------------------------------------- Gamification
+  /gamification/profile:
+    get:
+      tags: [Gamification]
+      summary: The caller's character (level/EXP/streak), badges, and mission progress
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties: { data: { $ref: '#/components/schemas/GamificationProfile' } }
+
+  /gamification/leaderboard:
+    get:
+      tags: [Gamification]
+      summary: Individual and department leaderboards
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties: { data: { $ref: '#/components/schemas/LeaderboardResponse' } }
+
+  # -------------------------------------------------------- AI Assistant
+  /ai/generate-tasks:
+    post:
+      tags: [AI Assistant]
+      summary: Break a goal or feature description down into 3-8 concrete tasks
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/GenerateTasksRequest' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties: { data: { $ref: '#/components/schemas/GenerateTasksResponse' } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500':
+          description: The AI assistant is not configured (missing ANTHROPIC_API_KEY), or the AI request failed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+
+  /ai/daily-summary:
+    get:
+      tags: [AI Assistant]
+      summary: Short digest of the caller's active tasks for today
+      description: Skips the AI call entirely (no cost) when the caller has no active tasks.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties: { data: { $ref: '#/components/schemas/SummaryResponse' } }
+
+  /ai/projects/{projectId}/weekly-summary:
+    get:
+      tags: [AI Assistant]
+      summary: Narrative summary of a project's last 7 days
+      parameters: [{ $ref: '#/components/parameters/ProjectIdInPath' }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties: { data: { $ref: '#/components/schemas/SummaryResponse' } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /ai/estimate-duration:
+    post:
+      tags: [AI Assistant]
+      summary: Suggest an hour estimate for a task
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EstimateRequest' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties: { data: { $ref: '#/components/schemas/EstimateResponse' } }
+
+  /ai/suggest-priority:
+    post:
+      tags: [AI Assistant]
+      summary: Suggest a priority for a task
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PriorityRequest' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties: { data: { $ref: '#/components/schemas/PriorityResponse' } }
+
+  /ai/suggest-assignee:
+    post:
+      tags: [AI Assistant]
+      summary: Suggest the best project member to assign a task to, factoring in current workload
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SuggestAssigneeRequest' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties: { data: { $ref: '#/components/schemas/AssigneeSuggestion' } }
+        '400':
+          description: The project has no members to assign
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /ai/projects/{projectId}/predict-late:
+    get:
+      tags: [AI Assistant]
+      summary: Flag open tasks at risk of finishing late, with reasoning
+      description: Skips the AI call (no cost) when nothing is open with a due date.
+      parameters: [{ $ref: '#/components/parameters/ProjectIdInPath' }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties: { data: { $ref: '#/components/schemas/PredictLateTasksResponse' } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /ai/projects/{projectId}/productivity:
+    get:
+      tags: [AI Assistant]
+      summary: Narrative analysis of team productivity over the last 30 days
+      parameters: [{ $ref: '#/components/parameters/ProjectIdInPath' }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties: { data: { $ref: '#/components/schemas/SummaryResponse' } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /ai/meeting-summary:
+    post:
+      tags: [AI Assistant]
+      summary: Summarize raw meeting notes into a summary paragraph and action items
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MeetingSummaryRequest' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties: { data: { $ref: '#/components/schemas/MeetingSummaryResponse' } }
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Access token returned by /auth/register, /auth/login, or /auth/refresh.
+
+  parameters:
+    ProjectId:
+      name: id
+      in: path
+      required: true
+      description: Project ID
+      schema: { type: string, format: uuid }
+    ProjectIdInPath:
+      name: projectId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    TaskId:
+      name: id
+      in: path
+      required: true
+      description: Task ID
+      schema: { type: string, format: uuid }
+    UserId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    Page:
+      name: page
+      in: query
+      schema: { type: integer, minimum: 1, default: 1 }
+    PageSize:
+      name: page_size
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+
+  responses:
+    MessageOK:
+      description: OK
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Envelope'
+              - type: object
+                properties: { data: { type: object, properties: { message: { type: string } } } }
+    MessageCreated:
+      description: Created
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Envelope'
+              - type: object
+                properties: { data: { type: object, properties: { message: { type: string } } } }
+    AuthResponse:
+      description: OK
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Envelope'
+              - type: object
+                properties: { data: { $ref: '#/components/schemas/AuthResponse' } }
+    BadRequest:
+      description: Invalid request body or parameters
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    Unauthorized:
+      description: Missing, invalid, or expired credentials
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    Forbidden:
+      description: Authenticated, but not permitted to perform this action
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    Conflict:
+      description: The resource already exists (e.g. email already registered)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+
+  schemas:
+    Envelope:
+      type: object
+      properties:
+        success: { type: boolean }
+      required: [success]
+    ErrorEnvelope:
+      type: object
+      properties:
+        success: { type: boolean, example: false }
+        error: { type: string }
+
+    # --------------------------------------------------------------- Auth
+    RegisterRequest:
+      type: object
+      required: [name, email, password]
+      properties:
+        name: { type: string, minLength: 2, maxLength: 100 }
+        email: { type: string, format: email }
+        password: { type: string, minLength: 8 }
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string }
+    RefreshRequest:
+      type: object
+      required: [refresh_token]
+      properties:
+        refresh_token: { type: string }
+    Role:
+      type: string
+      enum: [super_admin, admin, manager, leader, employee]
+    UserResponse:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        email: { type: string, format: email }
+        role: { $ref: '#/components/schemas/Role' }
+        avatar_url: { type: string }
+        department_id: { type: string, format: uuid, nullable: true }
+    AuthResponse:
+      type: object
+      properties:
+        access_token: { type: string }
+        refresh_token: { type: string }
+        user: { $ref: '#/components/schemas/UserResponse' }
+    UpdateRoleRequest:
+      type: object
+      required: [role]
+      properties:
+        role: { $ref: '#/components/schemas/Role' }
+    UpdateDepartmentRequest:
+      type: object
+      properties:
+        department_id: { type: string, format: uuid, nullable: true }
+
+    # ----------------------------------------------------------- Projects
+    ProjectStatus:
+      type: string
+      enum: [planning, active, on_hold, completed, archived]
+    ProjectCreateRequest:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 2, maxLength: 150 }
+        description: { type: string, maxLength: 2000 }
+        due_date: { type: string, format: date, nullable: true }
+        color: { type: string, maxLength: 20 }
+        icon: { type: string, maxLength: 50 }
+    ProjectUpdateRequest:
+      type: object
+      properties:
+        name: { type: string, minLength: 2, maxLength: 150 }
+        description: { type: string, maxLength: 2000 }
+        status: { $ref: '#/components/schemas/ProjectStatus' }
+        due_date: { type: string, format: date, nullable: true }
+        color: { type: string, maxLength: 20 }
+        icon: { type: string, maxLength: 50 }
+    ProjectResponse:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        description: { type: string }
+        owner_id: { type: string, format: uuid }
+        status: { $ref: '#/components/schemas/ProjectStatus' }
+        due_date: { type: string, format: date-time, nullable: true }
+        color: { type: string }
+        icon: { type: string }
+        created_at: { type: string, format: date-time }
+    ProjectListResponse:
+      type: object
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/ProjectResponse' } }
+        total: { type: integer }
+        page: { type: integer }
+        page_size: { type: integer }
+    AddMemberRequest:
+      type: object
+      required: [user_id]
+      properties:
+        user_id: { type: string, format: uuid }
+    ProjectMemberDetail:
+      type: object
+      properties:
+        user_id: { type: string, format: uuid }
+        role: { type: string, enum: [owner, member] }
+        name: { type: string }
+        email: { type: string, format: email }
+        avatar_url: { type: string }
+
+    # -------------------------------------------------------------- Tasks
+    TaskPriority:
+      type: string
+      enum: [critical, high, medium, low]
+    TaskStatus:
+      type: string
+      enum: [backlog, todo, doing, review, testing, done, blocked]
+    TaskCreateRequest:
+      type: object
+      required: [project_id, title]
+      properties:
+        project_id: { type: string, format: uuid }
+        parent_task_id: { type: string, format: uuid, nullable: true }
+        title: { type: string, minLength: 2, maxLength: 200 }
+        description: { type: string, maxLength: 5000 }
+        priority: { $ref: '#/components/schemas/TaskPriority' }
+        start_date: { type: string, format: date, nullable: true }
+        due_date: { type: string, format: date, nullable: true }
+        estimate_hours: { type: number, minimum: 0, nullable: true }
+        assignee_id: { type: string, format: uuid, nullable: true, description: Must already be a project member. }
+        milestone_id: { type: string, format: uuid, nullable: true }
+        tags: { type: array, items: { type: string, minLength: 1, maxLength: 30 } }
+    TaskUpdateRequest:
+      type: object
+      properties:
+        title: { type: string, minLength: 2, maxLength: 200 }
+        description: { type: string, maxLength: 5000 }
+        priority: { $ref: '#/components/schemas/TaskPriority' }
+        status: { $ref: '#/components/schemas/TaskStatus' }
+        start_date: { type: string, format: date, nullable: true }
+        due_date: { type: string, format: date, nullable: true }
+        estimate_hours: { type: number, minimum: 0, nullable: true }
+        assignee_id: { type: string, format: uuid, nullable: true }
+        milestone_id: { type: string, format: uuid, nullable: true }
+    TaskResponse:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        project_id: { type: string, format: uuid }
+        parent_task_id: { type: string, format: uuid, nullable: true }
+        title: { type: string }
+        description: { type: string }
+        priority: { $ref: '#/components/schemas/TaskPriority' }
+        status: { $ref: '#/components/schemas/TaskStatus' }
+        start_date: { type: string, format: date, nullable: true }
+        due_date: { type: string, format: date, nullable: true }
+        completed_at: { type: string, format: date, nullable: true }
+        estimate_hours: { type: number, nullable: true }
+        assignee_id: { type: string, format: uuid, nullable: true }
+        milestone_id: { type: string, format: uuid, nullable: true }
+        reporter_id: { type: string, format: uuid }
+        tags: { type: array, items: { type: string } }
+        created_at: { type: string, format: date-time }
+    TaskListResponse:
+      type: object
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/TaskResponse' } }
+        total: { type: integer }
+        page: { type: integer }
+        page_size: { type: integer }
+    MySummaryResponse:
+      type: object
+      properties:
+        active_count: { type: integer }
+        overdue_count: { type: integer }
+        due_soon_count: { type: integer, description: Due within the next 3 days. }
+        tasks: { type: array, items: { $ref: '#/components/schemas/TaskResponse' }, description: 'Preview list, due-date ascending, capped at 8.' }
+    SetTagsRequest:
+      type: object
+      required: [tags]
+      properties:
+        tags: { type: array, items: { type: string, minLength: 1, maxLength: 30 } }
+    ChecklistItemResponse:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        text: { type: string }
+        done: { type: boolean }
+        position: { type: integer }
+    AddChecklistItemRequest:
+      type: object
+      required: [text]
+      properties:
+        text: { type: string, minLength: 1, maxLength: 300 }
+    UpdateChecklistItemRequest:
+      type: object
+      properties:
+        text: { type: string, minLength: 1, maxLength: 300 }
+        done: { type: boolean }
+    AddDependencyRequest:
+      type: object
+      required: [depends_on_task_id]
+      properties:
+        depends_on_task_id: { type: string, format: uuid }
+    DependencyResponse:
+      type: object
+      properties:
+        task_id: { type: string, format: uuid }
+        depends_on_task_id: { type: string, format: uuid }
+    GanttResponse:
+      type: object
+      properties:
+        tasks: { type: array, items: { $ref: '#/components/schemas/TaskResponse' } }
+        dependencies: { type: array, items: { $ref: '#/components/schemas/DependencyResponse' } }
+        critical_path: { type: array, items: { type: string, format: uuid }, description: "Task IDs, in path order." }
+        project_days: { type: integer, description: "Total span of the critical path, in days." }
+    AddCommentRequest:
+      type: object
+      required: [body]
+      properties:
+        body: { type: string, minLength: 1, maxLength: 5000 }
+    CommentResponse:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        task_id: { type: string, format: uuid }
+        author_id: { type: string, format: uuid }
+        author_name: { type: string }
+        body: { type: string }
+        created_at: { type: string, format: date-time }
+    AttachmentResponse:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        task_id: { type: string, format: uuid }
+        uploader_id: { type: string, format: uuid }
+        uploader_name: { type: string }
+        file_name: { type: string }
+        content_type: { type: string }
+        size_bytes: { type: integer }
+        created_at: { type: string, format: date-time }
+    AttachmentDownloadResponse:
+      type: object
+      properties:
+        url: { type: string, format: uri }
+    WatcherResponse:
+      type: object
+      properties:
+        user_id: { type: string, format: uuid }
+        name: { type: string }
+        email: { type: string, format: email }
+    WatchStatusResponse:
+      type: object
+      properties:
+        watching: { type: boolean }
+
+    # ------------------------------------------------------------- Action Plan
+    ActionPlanStatus:
+      type: string
+      enum: [not_started, in_progress, completed]
+    GoalCreateRequest:
+      type: object
+      required: [project_id, name]
+      properties:
+        project_id: { type: string, format: uuid }
+        name: { type: string, minLength: 2, maxLength: 200 }
+        description: { type: string, maxLength: 2000 }
+        due_date: { type: string, format: date, nullable: true }
+    GoalUpdateRequest:
+      type: object
+      properties:
+        name: { type: string, minLength: 2, maxLength: 200 }
+        description: { type: string, maxLength: 2000 }
+        status: { $ref: '#/components/schemas/ActionPlanStatus' }
+        due_date: { type: string, format: date, nullable: true }
+    GoalResponse:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        project_id: { type: string, format: uuid }
+        name: { type: string }
+        description: { type: string }
+        status: { $ref: '#/components/schemas/ActionPlanStatus' }
+        due_date: { type: string, format: date, nullable: true }
+        created_at: { type: string, format: date-time }
+    MilestoneCreateRequest:
+      type: object
+      required: [goal_id, name]
+      properties:
+        goal_id: { type: string, format: uuid }
+        name: { type: string, minLength: 2, maxLength: 200 }
+        description: { type: string, maxLength: 2000 }
+        due_date: { type: string, format: date, nullable: true }
+    MilestoneUpdateRequest:
+      type: object
+      properties:
+        name: { type: string, minLength: 2, maxLength: 200 }
+        description: { type: string, maxLength: 2000 }
+        status: { $ref: '#/components/schemas/ActionPlanStatus' }
+        due_date: { type: string, format: date, nullable: true }
+    MilestoneResponse:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        goal_id: { type: string, format: uuid }
+        name: { type: string }
+        description: { type: string }
+        status: { $ref: '#/components/schemas/ActionPlanStatus' }
+        due_date: { type: string, format: date, nullable: true }
+        created_at: { type: string, format: date-time }
+    TaskNode:
+      description: A TaskResponse with its own subtasks nested one level deep.
+      allOf:
+        - $ref: '#/components/schemas/TaskResponse'
+        - type: object
+          properties:
+            subtasks: { type: array, items: { $ref: '#/components/schemas/TaskResponse' } }
+    MilestoneNode:
+      allOf:
+        - $ref: '#/components/schemas/MilestoneResponse'
+        - type: object
+          properties:
+            tasks: { type: array, items: { $ref: '#/components/schemas/TaskNode' } }
+    GoalNode:
+      allOf:
+        - $ref: '#/components/schemas/GoalResponse'
+        - type: object
+          properties:
+            milestones: { type: array, items: { $ref: '#/components/schemas/MilestoneNode' } }
+    ActionPlanView:
+      type: object
+      properties:
+        goals: { type: array, items: { $ref: '#/components/schemas/GoalNode' } }
+
+    # ------------------------------------------------------------------ Reports
+    ReportSummary:
+      type: object
+      properties:
+        total_tasks: { type: integer }
+        created_in_period: { type: integer }
+        completed_in_period: { type: integer }
+        completion_rate: { type: number, description: completed_in_period / created_in_period }
+        overdue_count: { type: integer, description: "As of now, not period-scoped." }
+        near_due_count: { type: integer, description: "Due within the next 3 days, as of now." }
+    AssigneePerformance:
+      type: object
+      description: Tasks completed within the period, grouped by assignee. "On time" means completed on or before its due date.
+      properties:
+        assignee_id: { type: string, format: uuid }
+        completed_count: { type: integer }
+        on_time_count: { type: integer }
+        late_count: { type: integer }
+        on_time_rate: { type: number }
+    ProductivityPoint:
+      type: object
+      properties:
+        date: { type: string, format: date }
+        completed_count: { type: integer }
+    PeriodReport:
+      type: object
+      properties:
+        from: { type: string, format: date }
+        to: { type: string, format: date }
+        summary: { $ref: '#/components/schemas/ReportSummary' }
+        late_tasks: { type: array, items: { $ref: '#/components/schemas/TaskResponse' } }
+        performance: { type: array, items: { $ref: '#/components/schemas/AssigneePerformance' } }
+        productivity: { type: array, items: { $ref: '#/components/schemas/ProductivityPoint' } }
+
+    # -------------------------------------------------------------------- Team
+    CreateDepartmentRequest:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 2, maxLength: 100 }
+    DepartmentResponse:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        created_at: { type: string, format: date-time }
+    DirectoryEntry:
+      type: object
+      properties:
+        user_id: { type: string, format: uuid }
+        name: { type: string }
+        email: { type: string, format: email }
+        role: { type: string }
+        avatar_url: { type: string }
+        department_id: { type: string, format: uuid }
+        department_name: { type: string }
+        online: { type: boolean }
+        workload: { type: integer, description: Count of active (non-Done) tasks across every project. }
+    DirectoryResponse:
+      type: object
+      properties:
+        members: { type: array, items: { $ref: '#/components/schemas/DirectoryEntry' } }
+        departments: { type: array, items: { $ref: '#/components/schemas/DepartmentResponse' } }
+
+    # ---------------------------------------------------------- Notifications
+    NotificationType:
+      type: string
+      enum: [assignment, comment, daily_digest, eod_digest, weekly_digest, monthly_digest]
+    NotificationResponse:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        type: { $ref: '#/components/schemas/NotificationType' }
+        title: { type: string }
+        body: { type: string }
+        link: { type: string }
+        read: { type: boolean }
+        created_at: { type: string, format: date-time }
+    NotificationListResponse:
+      type: object
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/NotificationResponse' } }
+        unread_count: { type: integer }
+    PreferenceResponse:
+      type: object
+      properties:
+        email_enabled: { type: boolean }
+        line_enabled: { type: boolean }
+        line_notify_token: { type: string }
+    UpdatePreferenceRequest:
+      type: object
+      properties:
+        email_enabled: { type: boolean }
+        line_enabled: { type: boolean }
+        line_notify_token: { type: string, maxLength: 200 }
+
+    # --------------------------------------------------------- Gamification
+    Character:
+      type: object
+      properties:
+        level: { type: integer }
+        level_title: { type: string, enum: [Novice, Adept, Master, Legend] }
+        exp: { type: integer }
+        exp_into_level: { type: integer }
+        exp_per_level: { type: integer }
+        total_completed: { type: integer }
+        current_streak: { type: integer }
+        longest_streak: { type: integer }
+    Badge:
+      type: object
+      properties:
+        code: { type: string, enum: [early_bird, fast_worker, hundred_tasks, perfect_week, seven_day_streak, legend] }
+        awarded_at: { type: string, format: date-time }
+    Mission:
+      type: object
+      properties:
+        type: { type: string, enum: [daily, weekly, monthly] }
+        count: { type: integer }
+        threshold: { type: integer }
+        reward: { type: integer, description: EXP awarded on completion. }
+        completed: { type: boolean }
+    GamificationProfile:
+      type: object
+      properties:
+        character: { $ref: '#/components/schemas/Character' }
+        badges: { type: array, items: { $ref: '#/components/schemas/Badge' } }
+        missions: { type: array, items: { $ref: '#/components/schemas/Mission' } }
+    LeaderboardEntry:
+      type: object
+      properties:
+        user_id: { type: string, format: uuid }
+        name: { type: string }
+        level: { type: integer }
+        exp: { type: integer }
+    DepartmentLeaderboardEntry:
+      type: object
+      properties:
+        department_id: { type: string, format: uuid }
+        department_name: { type: string }
+        total_exp: { type: integer }
+        member_count: { type: integer }
+    LeaderboardResponse:
+      type: object
+      properties:
+        individuals: { type: array, items: { $ref: '#/components/schemas/LeaderboardEntry' } }
+        departments: { type: array, items: { $ref: '#/components/schemas/DepartmentLeaderboardEntry' } }
+
+    # --------------------------------------------------------- AI Assistant
+    GenerateTasksRequest:
+      type: object
+      required: [project_id, prompt]
+      properties:
+        project_id: { type: string, format: uuid }
+        prompt: { type: string, minLength: 3, maxLength: 2000 }
+    TaskSuggestion:
+      type: object
+      properties:
+        title: { type: string }
+        description: { type: string }
+        priority: { $ref: '#/components/schemas/TaskPriority' }
+        estimate_hours: { type: number }
+    GenerateTasksResponse:
+      type: object
+      properties:
+        tasks: { type: array, items: { $ref: '#/components/schemas/TaskSuggestion' } }
+    SummaryResponse:
+      type: object
+      properties:
+        summary: { type: string }
+    EstimateRequest:
+      type: object
+      required: [title]
+      properties:
+        title: { type: string, minLength: 2, maxLength: 200 }
+        description: { type: string, maxLength: 5000 }
+    EstimateResponse:
+      type: object
+      properties:
+        estimate_hours: { type: number }
+        reasoning: { type: string }
+    PriorityRequest:
+      type: object
+      required: [title]
+      properties:
+        title: { type: string, minLength: 2, maxLength: 200 }
+        description: { type: string, maxLength: 5000 }
+    PriorityResponse:
+      type: object
+      properties:
+        priority: { $ref: '#/components/schemas/TaskPriority' }
+        reasoning: { type: string }
+    SuggestAssigneeRequest:
+      type: object
+      required: [project_id, title]
+      properties:
+        project_id: { type: string, format: uuid }
+        title: { type: string, minLength: 2, maxLength: 200 }
+        description: { type: string, maxLength: 5000 }
+    AssigneeSuggestion:
+      type: object
+      properties:
+        assignee_id: { type: string, format: uuid }
+        assignee_name: { type: string }
+        reasoning: { type: string }
+    LateTaskRisk:
+      type: object
+      properties:
+        task_id: { type: string, format: uuid }
+        title: { type: string }
+        reasoning: { type: string }
+    PredictLateTasksResponse:
+      type: object
+      properties:
+        at_risk: { type: array, items: { $ref: '#/components/schemas/LateTaskRisk' } }
+    MeetingSummaryRequest:
+      type: object
+      required: [notes]
+      properties:
+        notes: { type: string, minLength: 10, maxLength: 20000 }
+    MeetingSummaryResponse:
+      type: object
+      properties:
+        summary: { type: string }
+        action_items: { type: array, items: { type: string } }
