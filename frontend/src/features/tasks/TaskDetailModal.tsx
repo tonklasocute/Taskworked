@@ -2,16 +2,21 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "@/stores/auth-store";
 import {
+  addChecklistItem,
   addComment,
   deleteAttachment,
+  deleteChecklistItem,
   deleteComment,
   getAttachmentDownloadURL,
   getTask,
   getWatchStatus,
   listAttachments,
+  listChecklist,
   listComments,
   listWatchers,
+  setTags,
   unwatchTask,
+  updateChecklistItem,
   uploadAttachment,
   watchTask,
 } from "@/features/tasks/api";
@@ -29,12 +34,35 @@ export default function TaskDetailModal({ taskId, onClose }: { taskId: string; o
   const queryClient = useQueryClient();
   const currentUserId = useAuthStore((s) => s.user?.id);
   const [commentBody, setCommentBody] = useState("");
+  const [newChecklistText, setNewChecklistText] = useState("");
+  const [tagInput, setTagInput] = useState("");
 
   const { data: task } = useQuery({ queryKey: ["task", taskId], queryFn: () => getTask(taskId) });
   const { data: comments } = useQuery({ queryKey: ["task-comments", taskId], queryFn: () => listComments(taskId) });
   const { data: attachments } = useQuery({ queryKey: ["task-attachments", taskId], queryFn: () => listAttachments(taskId) });
   const { data: watchers } = useQuery({ queryKey: ["task-watchers", taskId], queryFn: () => listWatchers(taskId) });
   const { data: watchStatus } = useQuery({ queryKey: ["task-watch-status", taskId], queryFn: () => getWatchStatus(taskId) });
+  const { data: checklist } = useQuery({ queryKey: ["task-checklist", taskId], queryFn: () => listChecklist(taskId) });
+
+  const invalidateChecklist = () => queryClient.invalidateQueries({ queryKey: ["task-checklist", taskId] });
+  const addChecklistMutation = useMutation({
+    mutationFn: (text: string) => addChecklistItem(taskId, text),
+    onSuccess: () => {
+      setNewChecklistText("");
+      invalidateChecklist();
+    },
+  });
+  const toggleChecklistMutation = useMutation({
+    mutationFn: ({ id, done }: { id: string; done: boolean }) => updateChecklistItem(taskId, id, { done }),
+    onSuccess: invalidateChecklist,
+  });
+  const deleteChecklistMutation = useMutation({
+    mutationFn: (id: string) => deleteChecklistItem(taskId, id),
+    onSuccess: invalidateChecklist,
+  });
+
+  const invalidateTask = () => queryClient.invalidateQueries({ queryKey: ["task", taskId] });
+  const setTagsMutation = useMutation({ mutationFn: (tags: string[]) => setTags(taskId, tags), onSuccess: invalidateTask });
 
   const invalidateComments = () => queryClient.invalidateQueries({ queryKey: ["task-comments", taskId] });
   const addCommentMutation = useMutation({
@@ -80,6 +108,38 @@ export default function TaskDetailModal({ taskId, onClose }: { taskId: string; o
           </Button>
         </div>
 
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          {task?.tags.map((tag) => (
+            <span key={tag} className="flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+              {tag}
+              <button
+                className="hover:text-destructive"
+                onClick={() => setTagsMutation.mutate((task?.tags ?? []).filter((t) => t !== tag))}
+              >
+                ✕
+              </button>
+            </span>
+          ))}
+          <form
+            className="inline-flex"
+            onSubmit={(e) => {
+              e.preventDefault();
+              const t = tagInput.trim();
+              if (t && !task?.tags.includes(t)) {
+                setTagsMutation.mutate([...(task?.tags ?? []), t]);
+                setTagInput("");
+              }
+            }}
+          >
+            <input
+              placeholder="+ tag"
+              value={tagInput}
+              onChange={(e) => setTagInput(e.target.value)}
+              className="h-6 w-20 rounded-full border border-border bg-transparent px-2 text-xs"
+            />
+          </form>
+        </div>
+
         <div className="mb-6 flex items-center gap-3">
           <Button
             size="sm"
@@ -93,6 +153,46 @@ export default function TaskDetailModal({ taskId, onClose }: { taskId: string; o
             {watchers && watchers.length > 0 ? `: ${watchers.map((w) => w.name).join(", ")}` : ""}
           </span>
         </div>
+
+        <section className="mb-6">
+          <h3 className="mb-2 text-sm font-semibold">Checklist</h3>
+          <ul className="mb-3 flex flex-col gap-1">
+            {checklist?.map((item) => (
+              <li key={item.id} className="flex items-center gap-2 rounded-lg px-2 py-1 text-sm hover:bg-muted">
+                <input
+                  type="checkbox"
+                  checked={item.done}
+                  onChange={(e) => toggleChecklistMutation.mutate({ id: item.id, done: e.target.checked })}
+                />
+                <span className={`flex-1 ${item.done ? "text-muted-foreground line-through" : ""}`}>{item.text}</span>
+                <button
+                  className="text-xs text-muted-foreground hover:text-destructive"
+                  onClick={() => deleteChecklistMutation.mutate(item.id)}
+                >
+                  ✕
+                </button>
+              </li>
+            ))}
+            {checklist?.length === 0 && <p className="text-sm text-muted-foreground">No checklist items yet.</p>}
+          </ul>
+          <form
+            className="flex gap-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (newChecklistText.trim()) addChecklistMutation.mutate(newChecklistText);
+            }}
+          >
+            <input
+              className={inputClass}
+              placeholder="Add a checklist item…"
+              value={newChecklistText}
+              onChange={(e) => setNewChecklistText(e.target.value)}
+            />
+            <Button type="submit" size="sm" disabled={addChecklistMutation.isPending}>
+              Add
+            </Button>
+          </form>
+        </section>
 
         <section className="mb-6">
           <h3 className="mb-2 text-sm font-semibold">Attachments</h3>

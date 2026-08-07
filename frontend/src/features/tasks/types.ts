@@ -33,6 +33,13 @@ export interface MySummary {
   tasks: Task[];
 }
 
+export interface ChecklistItem {
+  id: string;
+  text: string;
+  done: boolean;
+  position: number;
+}
+
 export interface TaskComment {
   id: string;
   task_id: string;

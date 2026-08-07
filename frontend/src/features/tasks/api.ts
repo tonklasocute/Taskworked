@@ -1,5 +1,6 @@
 import { api } from "@/lib/api";
 import type {
+  ChecklistItem,
   GanttView,
   MySummary,
   Task,
@@ -40,6 +41,26 @@ export function updateTaskDates(id: string, dates: { start_date?: string; due_da
 
 export function getGanttView(projectId: string) {
   return api.get<{ data: GanttView }>(`/projects/${projectId}/gantt`).then((r) => r.data.data);
+}
+
+export function listChecklist(taskId: string) {
+  return api.get<{ data: ChecklistItem[] }>(`/tasks/${taskId}/checklist`).then((r) => r.data.data ?? []);
+}
+
+export function addChecklistItem(taskId: string, text: string) {
+  return api.post<{ data: ChecklistItem }>(`/tasks/${taskId}/checklist`, { text }).then((r) => r.data.data);
+}
+
+export function updateChecklistItem(taskId: string, itemId: string, patch: { text?: string; done?: boolean }) {
+  return api.patch<{ data: ChecklistItem }>(`/tasks/${taskId}/checklist/${itemId}`, patch).then((r) => r.data.data);
+}
+
+export function deleteChecklistItem(taskId: string, itemId: string) {
+  return api.delete(`/tasks/${taskId}/checklist/${itemId}`);
+}
+
+export function setTags(taskId: string, tags: string[]) {
+  return api.put<{ data: { tags: string[] } }>(`/tasks/${taskId}/tags`, { tags }).then((r) => r.data.data.tags);
 }
 
 export function addDependency(taskId: string, dependsOnTaskId: string) {

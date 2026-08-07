@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
 import { DndContext, useDraggable, useDroppable, type DragEndEvent } from "@dnd-kit/core";
@@ -7,6 +8,7 @@ import { listTasks, updateTaskStatus } from "@/features/tasks/api";
 import { useTaskSocket } from "@/features/tasks/useTaskSocket";
 import type { Task, TaskPriority, TaskStatus } from "@/features/tasks/types";
 import { Card, CardContent } from "@/components/ui/card";
+import TaskDetailModal from "@/features/tasks/TaskDetailModal";
 
 const COLUMNS: { status: TaskStatus; label: string }[] = [
   { status: "backlog", label: "Backlog" },
@@ -28,6 +30,7 @@ const PRIORITY_COLOR: Record<TaskPriority, string> = {
 export default function KanbanBoard() {
   const { projectId } = useParams<{ projectId: string }>();
   const queryClient = useQueryClient();
+  const [openTaskId, setOpenTaskId] = useState<string | null>(null);
 
   const { data: project } = useQuery({
     queryKey: ["project", projectId],
@@ -74,15 +77,28 @@ export default function KanbanBoard() {
               status={col.status}
               label={col.label}
               tasks={tasks?.items.filter((t) => t.status === col.status) ?? []}
+              onOpenTask={setOpenTaskId}
             />
           ))}
         </div>
       </DndContext>
+
+      {openTaskId && <TaskDetailModal taskId={openTaskId} onClose={() => setOpenTaskId(null)} />}
     </div>
   );
 }
 
-function BoardColumn({ status, label, tasks }: { status: TaskStatus; label: string; tasks: Task[] }) {
+function BoardColumn({
+  status,
+  label,
+  tasks,
+  onOpenTask,
+}: {
+  status: TaskStatus;
+  label: string;
+  tasks: Task[];
+  onOpenTask: (id: string) => void;
+}) {
   const { setNodeRef, isOver } = useDroppable({ id: status });
 
   return (
@@ -95,13 +111,13 @@ function BoardColumn({ status, label, tasks }: { status: TaskStatus; label: stri
         <span className="text-xs text-muted-foreground">{tasks.length}</span>
       </div>
       {tasks.map((task) => (
-        <TaskCard key={task.id} task={task} />
+        <TaskCard key={task.id} task={task} onOpen={() => onOpenTask(task.id)} />
       ))}
     </div>
   );
 }
 
-function TaskCard({ task }: { task: Task }) {
+function TaskCard({ task, onOpen }: { task: Task; onOpen: () => void }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: task.id });
 
   const style = transform
@@ -117,7 +133,9 @@ function TaskCard({ task }: { task: Task }) {
       className={`cursor-grab touch-none active:cursor-grabbing ${isDragging ? "opacity-50" : ""}`}
     >
       <CardContent className="p-3">
-        <p className="text-sm font-medium">{task.title}</p>
+        <button className="text-left" onClick={onOpen}>
+          <p className="text-sm font-medium hover:underline">{task.title}</p>
+        </button>
         <div className="mt-2 flex flex-wrap items-center gap-1">
           <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${PRIORITY_COLOR[task.priority]}`}>
             {task.priority}
