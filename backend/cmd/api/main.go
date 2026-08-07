@@ -12,6 +12,7 @@ import (
 	"github.com/khomkrittk/taskworked/backend/internal/config"
 	appmiddleware "github.com/khomkrittk/taskworked/backend/internal/middleware"
 	"github.com/khomkrittk/taskworked/backend/internal/modules/actionplan"
+	"github.com/khomkrittk/taskworked/backend/internal/modules/ai"
 	"github.com/khomkrittk/taskworked/backend/internal/modules/auth"
 	"github.com/khomkrittk/taskworked/backend/internal/modules/gamification"
 	"github.com/khomkrittk/taskworked/backend/internal/modules/notification"
@@ -129,6 +130,10 @@ func main() {
 	// unlike task.EventPublisher (see projectEventPublisher above).
 	notificationService := notification.NewService(notificationRepo, authService, taskService, publisher, emailSender, notification.NewLineNotifySender())
 	notificationHandler := notification.NewHandler(notificationService)
+
+	aiClient := ai.NewAnthropicClient(cfg.AnthropicAPIKey)
+	aiService := ai.NewService(aiClient, projectService, taskService, reportService)
+	aiHandler := ai.NewHandler(aiService)
 	notifierHolder.notifier = notificationService
 
 	cronScheduler := cron.New()
@@ -165,6 +170,7 @@ func main() {
 	teamHandler.RegisterRoutes(api.Group("", requireAuth, trackPresence))
 	notificationHandler.RegisterRoutes(api.Group("", requireAuth, trackPresence))
 	gamificationHandler.RegisterRoutes(api.Group("", requireAuth, trackPresence))
+	aiHandler.RegisterRoutes(api.Group("", requireAuth, trackPresence))
 	realtime.RegisterRoute(app, tokens, projectService, hub)
 
 	log.Fatal(app.Listen(":" + cfg.Port))

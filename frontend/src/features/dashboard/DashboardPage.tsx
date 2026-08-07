@@ -23,6 +23,9 @@ export default function DashboardPage() {
           <Link to="/gamification">
             <Button variant="outline">Gamification</Button>
           </Link>
+          <Link to="/ai-assistant">
+            <Button variant="outline">AI Assistant</Button>
+          </Link>
           <Button
             variant="outline"
             onClick={async () => {

@@ -14,6 +14,7 @@ import ReportsPage from "@/features/reports/ReportsPage";
 import TeamPage from "@/features/team/TeamPage";
 import NotificationPreferencesPage from "@/features/notifications/NotificationPreferencesPage";
 import GamificationPage from "@/features/gamification/GamificationPage";
+import AIAssistantPage from "@/features/ai/AIAssistantPage";
 
 const router = createBrowserRouter([
   { path: "/login", element: <LoginPage /> },
@@ -35,6 +36,7 @@ const router = createBrowserRouter([
           { path: "/team", element: <TeamPage /> },
           { path: "/settings/notifications", element: <NotificationPreferencesPage /> },
           { path: "/gamification", element: <GamificationPage /> },
+          { path: "/ai-assistant", element: <AIAssistantPage /> },
         ],
       },
     ],
