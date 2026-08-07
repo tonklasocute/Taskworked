@@ -94,6 +94,16 @@ type Response struct {
 	CreatedAt     time.Time `json:"created_at"`
 }
 
+// MySummaryResponse powers the Dashboard's "my work" widget — active/overdue/
+// due-soon counts plus a capped, due-date-sorted preview list, computed
+// across every project the caller is assigned in (no project_id needed).
+type MySummaryResponse struct {
+	ActiveCount  int64      `json:"active_count"`
+	OverdueCount int64      `json:"overdue_count"`
+	DueSoonCount int64      `json:"due_soon_count"`
+	Tasks        []Response `json:"tasks"`
+}
+
 type ChecklistItemResponse struct {
 	ID       string `json:"id"`
 	Text     string `json:"text"`

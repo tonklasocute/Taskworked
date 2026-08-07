@@ -24,6 +24,7 @@ func (h *Handler) RegisterRoutes(router fiber.Router) {
 	r := router.Group("/tasks")
 	r.Post("/", h.create)
 	r.Get("/", h.list)
+	r.Get("/my-summary", h.mySummary)
 	r.Get("/:id", h.get)
 	r.Patch("/:id", h.update)
 	r.Delete("/:id", h.delete)
@@ -99,6 +100,19 @@ func (h *Handler) list(c *fiber.Ctx) error {
 	}
 
 	result, err := h.service.List(c.Context(), actorID, auth.Role(httpctx.ActorRole(c)), filter)
+	if err != nil {
+		return httpctx.WriteErr(c, err)
+	}
+	return response.OK(c, result)
+}
+
+func (h *Handler) mySummary(c *fiber.Ctx) error {
+	actorID, err := httpctx.ActorID(c)
+	if err != nil {
+		return httpctx.WriteErr(c, err)
+	}
+
+	result, err := h.service.GetMySummary(c.Context(), actorID)
 	if err != nil {
 		return httpctx.WriteErr(c, err)
 	}

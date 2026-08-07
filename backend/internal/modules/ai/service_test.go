@@ -101,6 +101,9 @@ func (f *fakeTaskService) ListAllResponses(context.Context, uuid.UUID, auth.Role
 func (f *fakeTaskService) ListCompletedByAssigneeSince(context.Context, uuid.UUID, time.Time) ([]task.Response, error) {
 	panic("not implemented")
 }
+func (f *fakeTaskService) GetMySummary(context.Context, uuid.UUID) (*task.MySummaryResponse, error) {
+	panic("not implemented")
+}
 func (f *fakeTaskService) Create(context.Context, uuid.UUID, auth.Role, task.CreateRequest) (*task.Response, error) {
 	panic("not implemented")
 }

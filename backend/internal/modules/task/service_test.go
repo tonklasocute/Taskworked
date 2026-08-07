@@ -1048,3 +1048,77 @@ func mustParse(t *testing.T, s string) uuid.UUID {
 	}
 	return id
 }
+
+func TestGetMySummary_ComputesCountsAndOrdersByDueDate(t *testing.T) {
+	repo := newFakeRepository()
+	projSvc := newFakeProjectService()
+	svc := NewService(repo, projSvc, nil, nil, nil)
+
+	projectID := uuid.New()
+	reporter := uuid.New()
+	assignee := uuid.New()
+	projSvc.addMember(projectID, reporter, false)
+	projSvc.addMember(projectID, assignee, false)
+	assigneeStr := assignee.String()
+
+	today := time.Now()
+	overdue := today.AddDate(0, 0, -2).Format("2006-01-02")
+	dueSoon := today.AddDate(0, 0, 1).Format("2006-01-02")
+	future := today.AddDate(0, 0, 30).Format("2006-01-02")
+
+	svc.Create(context.Background(), reporter, auth.RoleEmployee, CreateRequest{ProjectID: projectID.String(), Title: "Overdue", AssigneeID: &assigneeStr, DueDate: &overdue})
+	svc.Create(context.Background(), reporter, auth.RoleEmployee, CreateRequest{ProjectID: projectID.String(), Title: "Due soon", AssigneeID: &assigneeStr, DueDate: &dueSoon})
+	svc.Create(context.Background(), reporter, auth.RoleEmployee, CreateRequest{ProjectID: projectID.String(), Title: "Future", AssigneeID: &assigneeStr, DueDate: &future})
+	svc.Create(context.Background(), reporter, auth.RoleEmployee, CreateRequest{ProjectID: projectID.String(), Title: "No due date", AssigneeID: &assigneeStr})
+
+	summary, err := svc.GetMySummary(context.Background(), assignee)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if summary.ActiveCount != 4 {
+		t.Errorf("expected 4 active, got %d", summary.ActiveCount)
+	}
+	if summary.OverdueCount != 1 {
+		t.Errorf("expected 1 overdue, got %d", summary.OverdueCount)
+	}
+	if summary.DueSoonCount != 1 {
+		t.Errorf("expected 1 due soon, got %d", summary.DueSoonCount)
+	}
+	if len(summary.Tasks) != 4 {
+		t.Fatalf("expected 4 tasks in preview, got %d", len(summary.Tasks))
+	}
+	if summary.Tasks[0].Title != "Overdue" || summary.Tasks[1].Title != "Due soon" || summary.Tasks[2].Title != "Future" {
+		t.Errorf("expected due-date ascending order, got %+v", summary.Tasks)
+	}
+	if summary.Tasks[3].Title != "No due date" {
+		t.Errorf("expected task with no due date last, got %+v", summary.Tasks[3])
+	}
+}
+
+func TestGetMySummary_CapsPreviewListAtEight(t *testing.T) {
+	repo := newFakeRepository()
+	projSvc := newFakeProjectService()
+	svc := NewService(repo, projSvc, nil, nil, nil)
+
+	projectID := uuid.New()
+	reporter := uuid.New()
+	assignee := uuid.New()
+	projSvc.addMember(projectID, reporter, false)
+	projSvc.addMember(projectID, assignee, false)
+	assigneeStr := assignee.String()
+
+	for i := 0; i < 10; i++ {
+		svc.Create(context.Background(), reporter, auth.RoleEmployee, CreateRequest{ProjectID: projectID.String(), Title: "Task", AssigneeID: &assigneeStr})
+	}
+
+	summary, err := svc.GetMySummary(context.Background(), assignee)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if summary.ActiveCount != 10 {
+		t.Errorf("expected active count 10, got %d", summary.ActiveCount)
+	}
+	if len(summary.Tasks) != 8 {
+		t.Errorf("expected preview capped at 8, got %d", len(summary.Tasks))
+	}
+}

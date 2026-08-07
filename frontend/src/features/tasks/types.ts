@@ -26,6 +26,13 @@ export interface TaskListResponse {
   page_size: number;
 }
 
+export interface MySummary {
+  active_count: number;
+  overdue_count: number;
+  due_soon_count: number;
+  tasks: Task[];
+}
+
 export interface GanttDependency {
   task_id: string;
   depends_on_task_id: string;

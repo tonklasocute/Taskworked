@@ -3,6 +3,7 @@ package task
 import (
 	"context"
 	"errors"
+	"sort"
 	"time"
 
 	"github.com/google/uuid"
@@ -45,6 +46,12 @@ type Service interface {
 	// messaging, this just supplies the content.
 	ListActiveByAssignee(ctx context.Context, userID uuid.UUID) ([]Response, error)
 	ListCompletedByAssigneeSince(ctx context.Context, userID uuid.UUID, since time.Time) ([]Response, error)
+
+	// GetMySummary powers the Dashboard's "my work" widget: active/overdue/
+	// due-soon counts and a capped preview list, across every project the
+	// caller is assigned in. No membership check — same self-scoped
+	// rationale as GetWorkload above.
+	GetMySummary(ctx context.Context, userID uuid.UUID) (*MySummaryResponse, error)
 }
 
 // EventPublisher lets the service broadcast task changes over WebSocket
@@ -576,6 +583,46 @@ func (s *service) ListCompletedByAssigneeSince(ctx context.Context, userID uuid.
 		responses[i] = toResponse(&tasks[i], nil)
 	}
 	return responses, nil
+}
+
+func (s *service) GetMySummary(ctx context.Context, userID uuid.UUID) (*MySummaryResponse, error) {
+	tasks, err := s.ListActiveByAssignee(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	sort.Slice(tasks, func(i, j int) bool {
+		if tasks[i].DueDate == nil {
+			return false
+		}
+		if tasks[j].DueDate == nil {
+			return true
+		}
+		return *tasks[i].DueDate < *tasks[j].DueDate
+	})
+
+	today := time.Now().Format("2006-01-02")
+	dueSoonCutoff := time.Now().AddDate(0, 0, 3).Format("2006-01-02")
+
+	summary := MySummaryResponse{ActiveCount: int64(len(tasks))}
+	for _, t := range tasks {
+		switch {
+		case t.DueDate == nil:
+			// no due date — counted in ActiveCount only
+		case *t.DueDate < today:
+			summary.OverdueCount++
+		case *t.DueDate <= dueSoonCutoff:
+			summary.DueSoonCount++
+		}
+	}
+
+	const previewLimit = 8
+	if len(tasks) > previewLimit {
+		tasks = tasks[:previewLimit]
+	}
+	summary.Tasks = tasks
+
+	return &summary, nil
 }
 
 func (s *service) GetGanttView(ctx context.Context, actorID uuid.UUID, actorRole auth.Role, projectID uuid.UUID) (*GanttResponse, error) {

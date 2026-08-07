@@ -1,10 +1,14 @@
 import { api } from "@/lib/api";
-import type { GanttView, Task, TaskListResponse, TaskPriority, TaskStatus } from "@/features/tasks/types";
+import type { GanttView, MySummary, Task, TaskListResponse, TaskPriority, TaskStatus } from "@/features/tasks/types";
 
 export function listTasks(projectId: string, filters?: { status?: TaskStatus; assignee_id?: string }) {
   return api
     .get<{ data: TaskListResponse }>("/tasks", { params: { project_id: projectId, ...filters } })
     .then((r) => r.data.data);
+}
+
+export function getMySummary() {
+  return api.get<{ data: MySummary }>("/tasks/my-summary").then((r) => r.data.data);
 }
 
 export function createTask(input: { project_id: string; title: string; description?: string; priority?: TaskPriority }) {

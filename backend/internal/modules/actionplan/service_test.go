@@ -119,6 +119,9 @@ func (f *fakeTaskService) ListActiveByAssignee(context.Context, uuid.UUID) ([]ta
 func (f *fakeTaskService) ListCompletedByAssigneeSince(context.Context, uuid.UUID, time.Time) ([]task.Response, error) {
 	panic("not implemented")
 }
+func (f *fakeTaskService) GetMySummary(context.Context, uuid.UUID) (*task.MySummaryResponse, error) {
+	panic("not implemented")
+}
 
 // fakeRepository is an in-memory stand-in for actionplan.Repository.
 type fakeRepository struct {
