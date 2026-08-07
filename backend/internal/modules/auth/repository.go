@@ -20,6 +20,11 @@ type Repository interface {
 	FindByIDs(ctx context.Context, ids []uuid.UUID) ([]User, error)
 	UpdateRole(ctx context.Context, id uuid.UUID, role Role) error
 	UpdateDepartment(ctx context.Context, id uuid.UUID, departmentID *uuid.UUID) error
+
+	// Count backs the first-admin bootstrap check in Register: an empty
+	// table means there's nobody yet who could grant the new account
+	// admin access, so it grants itself.
+	Count(ctx context.Context) (int64, error)
 }
 
 type repository struct {
@@ -83,4 +88,10 @@ func (r *repository) UpdateRole(ctx context.Context, id uuid.UUID, role Role) er
 
 func (r *repository) UpdateDepartment(ctx context.Context, id uuid.UUID, departmentID *uuid.UUID) error {
 	return r.db.WithContext(ctx).Model(&User{}).Where("id = ?", id).Update("department_id", departmentID).Error
+}
+
+func (r *repository) Count(ctx context.Context) (int64, error) {
+	var count int64
+	err := r.db.WithContext(ctx).Model(&User{}).Count(&count).Error
+	return count, err
 }

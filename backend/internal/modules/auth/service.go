@@ -45,17 +45,38 @@ func (s *service) Register(ctx context.Context, req RegisterRequest) (*AuthRespo
 		return nil, apperrors.Internal("failed to hash password")
 	}
 
+	count, countErr := s.repo.Count(ctx)
 	user := &User{
 		Name:         req.Name,
 		Email:        req.Email,
 		PasswordHash: string(hash),
-		Role:         RoleEmployee,
+		Role:         bootstrapRole(count, countErr),
 	}
 	if err := s.repo.Create(ctx, user); err != nil {
 		return nil, apperrors.Internal("failed to create user")
 	}
 
 	return s.issueTokens(ctx, user)
+}
+
+// bootstrapRole decides the role a newly registering account gets. The
+// very first account in the system has nobody around yet to grant it
+// admin access, so it grants itself — the same self-bootstrap pattern
+// most admin panels use (WordPress, Django, ...). Every account after
+// that is a plain employee; promotion happens via UpdateRole.
+//
+// A failed Count query fails safe to the default (employee) rather than
+// risking an unintended admin grant — better to require a manual promotion
+// than to silently hand out admin because a query hiccupped.
+//
+// ponytail: no locking against the race where two registrations both see
+// count==0 concurrently — acceptable for a one-time bootstrap event, not
+// a hot path. Upgrade with a unique partial index if that ever matters.
+func bootstrapRole(existingUserCount int64, countErr error) Role {
+	if countErr == nil && existingUserCount == 0 {
+		return RoleSuperAdmin
+	}
+	return RoleEmployee
 }
 
 func (s *service) Login(ctx context.Context, req LoginRequest) (*AuthResponse, error) {

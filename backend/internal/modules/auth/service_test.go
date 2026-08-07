@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/google/uuid"
@@ -74,6 +75,10 @@ func (f *fakeRepository) UpdateDepartment(_ context.Context, id uuid.UUID, depar
 	}
 	u.DepartmentID = departmentID
 	return nil
+}
+
+func (f *fakeRepository) Count(_ context.Context) (int64, error) {
+	return int64(len(f.users)), nil
 }
 
 func appErrStatus(t *testing.T, err error) int {
@@ -164,5 +169,23 @@ func TestUpdateDepartment_ByAdminSucceeds(t *testing.T) {
 	}
 	if updated.DepartmentID == nil || *updated.DepartmentID != deptID {
 		t.Errorf("expected department_id %q, got %v", deptID, updated.DepartmentID)
+	}
+}
+
+func TestBootstrapRole_FirstAccountBecomesSuperAdmin(t *testing.T) {
+	if role := bootstrapRole(0, nil); role != RoleSuperAdmin {
+		t.Errorf("expected the first account to become %q, got %q", RoleSuperAdmin, role)
+	}
+}
+
+func TestBootstrapRole_SubsequentAccountsAreEmployees(t *testing.T) {
+	if role := bootstrapRole(1, nil); role != RoleEmployee {
+		t.Errorf("expected a subsequent account to be %q, got %q", RoleEmployee, role)
+	}
+}
+
+func TestBootstrapRole_CountErrorFailsSafeToEmployee(t *testing.T) {
+	if role := bootstrapRole(0, errors.New("db unavailable")); role != RoleEmployee {
+		t.Errorf("expected a Count() failure to fail safe to %q, got %q", RoleEmployee, role)
 	}
 }
