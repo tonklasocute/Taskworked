@@ -1,10 +1,12 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useParams } from "react-router-dom";
-import { getProject } from "@/features/projects/api";
+import { useParams } from "react-router-dom";
 import { addDependency, getGanttView, removeDependency } from "@/features/tasks/api";
 import type { Task, TaskPriority } from "@/features/tasks/types";
 import { Button } from "@/components/ui/button";
+import { Select } from "@/components/ui/select";
+import { Tabs, TabButton } from "@/components/ui/tabs";
+import { EmptyState } from "@/components/ui/empty-state";
 
 type Zoom = "day" | "week" | "month";
 const DAY_WIDTH: Record<Zoom, number> = { day: 36, week: 14, month: 5 };
@@ -46,12 +48,6 @@ export default function GanttPage() {
   const [zoom, setZoom] = useState<Zoom>("day");
   const [successorId, setSuccessorId] = useState("");
   const [predecessorId, setPredecessorId] = useState("");
-
-  const { data: project } = useQuery({
-    queryKey: ["project", projectId],
-    queryFn: () => getProject(projectId!),
-    enabled: !!projectId,
-  });
 
   const { data: gantt } = useQuery({
     queryKey: ["gantt", projectId],
@@ -133,26 +129,24 @@ export default function GanttPage() {
   }, [minDate, totalDays, zoom, dayWidth]);
 
   return (
-    <div className="min-h-screen p-6">
+    <div className="p-6">
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <Link to={`/projects/${projectId}`} className="text-sm text-muted-foreground">← List view</Link>
-          <h1 className="text-2xl font-semibold">{project?.name ?? "Gantt"}</h1>
           {gantt && gantt.project_days > 0 && (
             <p className="text-sm text-muted-foreground">Critical path: {gantt.project_days} day{gantt.project_days === 1 ? "" : "s"}</p>
           )}
         </div>
-        <div className="flex gap-1 rounded-lg border border-border p-1">
+        <Tabs>
           {(["day", "week", "month"] as Zoom[]).map((z) => (
-            <Button key={z} size="sm" variant={zoom === z ? "default" : "ghost"} onClick={() => setZoom(z)}>
+            <TabButton key={z} active={zoom === z} onClick={() => setZoom(z)}>
               {z[0].toUpperCase() + z.slice(1)}
-            </Button>
+            </TabButton>
           ))}
-        </div>
+        </Tabs>
       </div>
 
       {rows.length === 0 ? (
-        <p className="text-muted-foreground">No tasks with dates yet — add a due date on the List view to see them here.</p>
+        <EmptyState title="No tasks with dates yet" description="Add a due date on the List view to see them here." />
       ) : (
         <div className="glass overflow-auto rounded-xl">
           <div className="flex" style={{ width: LABEL_WIDTH + timelineWidth }}>
@@ -255,19 +249,19 @@ export default function GanttPage() {
             if (successorId && predecessorId && successorId !== predecessorId) addDepMutation.mutate();
           }}
         >
-          <select value={successorId} onChange={(e) => setSuccessorId(e.target.value)} className="h-9 rounded-lg border border-border bg-transparent px-2 text-sm">
+          <Select value={successorId} onChange={(e) => setSuccessorId(e.target.value)} className="h-9 w-48">
             <option value="">Task…</option>
             {gantt?.tasks.map((t) => (
               <option key={t.id} value={t.id}>{t.title}</option>
             ))}
-          </select>
+          </Select>
           <span className="text-sm text-muted-foreground">depends on</span>
-          <select value={predecessorId} onChange={(e) => setPredecessorId(e.target.value)} className="h-9 rounded-lg border border-border bg-transparent px-2 text-sm">
+          <Select value={predecessorId} onChange={(e) => setPredecessorId(e.target.value)} className="h-9 w-48">
             <option value="">Task…</option>
             {gantt?.tasks.map((t) => (
               <option key={t.id} value={t.id}>{t.title}</option>
             ))}
-          </select>
+          </Select>
           <Button type="submit" size="sm" disabled={addDepMutation.isPending || !successorId || !predecessorId}>
             Add dependency
           </Button>

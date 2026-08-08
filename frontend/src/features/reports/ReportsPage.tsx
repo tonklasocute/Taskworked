@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link, useParams } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { getProject, getProjectMembers } from "@/features/projects/api";
 import { downloadCsv, getPeriodReport } from "@/features/reports/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabButton } from "@/components/ui/tabs";
 
 function StatTile({ label, value }: { label: string; value: string | number }) {
   return (
@@ -42,24 +43,18 @@ export default function ReportsPage() {
   const nameByUserId = new Map((members ?? []).map((m) => [m.user_id, m.name]));
 
   return (
-    <div className="min-h-screen p-6 print:p-0">
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-3 print:hidden">
-        <div>
-          <Link to={`/projects/${projectId}`} className="text-sm text-muted-foreground">← List view</Link>
-          <h1 className="text-2xl font-semibold">{project?.name ?? "Reports"}</h1>
-        </div>
-        <div className="flex gap-2">
-          <div className="flex gap-1 rounded-lg border border-border p-1">
-            <Button size="sm" variant={period === "week" ? "default" : "ghost"} onClick={() => setPeriod("week")}>
-              Weekly
-            </Button>
-            <Button size="sm" variant={period === "month" ? "default" : "ghost"} onClick={() => setPeriod("month")}>
-              Monthly
-            </Button>
-          </div>
-          <Button variant="outline" onClick={() => downloadCsv(projectId!)}>Export CSV</Button>
-          <Button variant="outline" onClick={() => window.print()}>Save as PDF</Button>
-        </div>
+    <div className="p-6 print:p-0">
+      <div className="mb-6 flex flex-wrap items-center justify-end gap-3 print:hidden">
+        <Tabs>
+          <TabButton active={period === "week"} onClick={() => setPeriod("week")}>
+            Weekly
+          </TabButton>
+          <TabButton active={period === "month"} onClick={() => setPeriod("month")}>
+            Monthly
+          </TabButton>
+        </Tabs>
+        <Button variant="outline" onClick={() => downloadCsv(projectId!)}>Export CSV</Button>
+        <Button variant="outline" onClick={() => window.print()}>Save as PDF</Button>
       </div>
 
       {isLoading && <p className="text-muted-foreground">Loading report…</p>}

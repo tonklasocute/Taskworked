@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Link } from "react-router-dom";
 import { getPreference, updatePreference } from "@/features/notifications/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
 export default function NotificationPreferencesPage() {
   const { data } = useQuery({ queryKey: ["notification-preference"], queryFn: getPreference });
@@ -24,11 +24,8 @@ export default function NotificationPreferencesPage() {
   });
 
   return (
-    <div className="min-h-screen p-6">
-      <div className="mb-6">
-        <Link to="/dashboard" className="text-sm text-muted-foreground">← Dashboard</Link>
-        <h1 className="text-2xl font-semibold">Notification Settings</h1>
-      </div>
+    <div className="p-6">
+      <h1 className="mb-6 text-2xl font-semibold">Notification Settings</h1>
 
       <Card className="max-w-md">
         <CardHeader>
@@ -54,12 +51,7 @@ export default function NotificationPreferencesPage() {
 
             {lineEnabled && (
               <div className="flex flex-col gap-1">
-                <input
-                  placeholder="LINE Notify token"
-                  value={lineToken}
-                  onChange={(e) => setLineToken(e.target.value)}
-                  className="h-10 rounded-lg border border-border bg-transparent px-3 text-sm"
-                />
+                <Input placeholder="LINE Notify token" value={lineToken} onChange={(e) => setLineToken(e.target.value)} />
                 <p className="text-xs text-muted-foreground">
                   Get a personal token from{" "}
                   <a href="https://notify-bot.line.me/my/" target="_blank" rel="noreferrer" className="underline">

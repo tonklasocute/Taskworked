@@ -1,17 +1,26 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useParams } from "react-router-dom";
-import { getProject } from "@/features/projects/api";
+import { useParams } from "react-router-dom";
 import { assignTaskToMilestone, createGoal, createMilestone, getActionPlan } from "@/features/actionplan/api";
 import type { GoalNode, MilestoneNode } from "@/features/actionplan/types";
 import { listTasks } from "@/features/tasks/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
+import { Badge, type BadgeProps } from "@/components/ui/badge";
+import { EmptyState } from "@/components/ui/empty-state";
 
 const STATUS_LABEL: Record<string, string> = {
   not_started: "Not started",
   in_progress: "In progress",
   completed: "Completed",
+};
+
+const STATUS_VARIANT: Record<string, BadgeProps["variant"]> = {
+  not_started: "default",
+  in_progress: "primary",
+  completed: "outline",
 };
 
 export default function ActionPlanPage() {
@@ -24,12 +33,6 @@ export default function ActionPlanPage() {
   const [milestoneName, setMilestoneName] = useState("");
   const [assignFormMilestoneId, setAssignFormMilestoneId] = useState<string | null>(null);
   const [assignTaskId, setAssignTaskId] = useState("");
-
-  const { data: project } = useQuery({
-    queryKey: ["project", projectId],
-    queryFn: () => getProject(projectId!),
-    enabled: !!projectId,
-  });
 
   const { data: plan, isLoading } = useQuery({
     queryKey: ["actionplan", projectId],
@@ -77,12 +80,8 @@ export default function ActionPlanPage() {
   });
 
   return (
-    <div className="min-h-screen p-6">
-      <div className="mb-6 flex items-center justify-between">
-        <div>
-          <Link to={`/projects/${projectId}`} className="text-sm text-muted-foreground">← List view</Link>
-          <h1 className="text-2xl font-semibold">{project?.name ?? "Action Plan"}</h1>
-        </div>
+    <div className="p-6">
+      <div className="mb-6 flex items-center justify-end">
         <Button onClick={() => setShowGoalForm((v) => !v)}>{showGoalForm ? "Cancel" : "New Goal"}</Button>
       </div>
 
@@ -99,13 +98,7 @@ export default function ActionPlanPage() {
                 goalMutation.mutate();
               }}
             >
-              <input
-                required
-                placeholder="Goal name"
-                value={goalName}
-                onChange={(e) => setGoalName(e.target.value)}
-                className="h-10 flex-1 rounded-lg border border-border bg-transparent px-3 text-sm"
-              />
+              <Input required placeholder="Goal name" value={goalName} onChange={(e) => setGoalName(e.target.value)} className="flex-1" />
               <Button type="submit" disabled={goalMutation.isPending}>
                 {goalMutation.isPending ? "Creating…" : "Create"}
               </Button>
@@ -114,9 +107,8 @@ export default function ActionPlanPage() {
         </Card>
       )}
 
-      {isLoading && <p className="text-muted-foreground">Loading action plan…</p>}
       {!isLoading && plan?.goals.length === 0 && (
-        <p className="text-muted-foreground">No goals yet. Create one to start structuring this project's roadmap.</p>
+        <EmptyState title="No goals yet" description="Create one to start structuring this project's roadmap." />
       )}
 
       <div className="flex flex-col gap-4">
@@ -125,7 +117,9 @@ export default function ActionPlanPage() {
             <CardHeader className="flex flex-row items-center justify-between">
               <div>
                 <CardTitle>{goal.name}</CardTitle>
-                <span className="text-xs text-muted-foreground">{STATUS_LABEL[goal.status]}</span>
+                <Badge variant={STATUS_VARIANT[goal.status]} className="mt-1">
+                  {STATUS_LABEL[goal.status]}
+                </Badge>
               </div>
               <Button size="sm" variant="outline" onClick={() => setMilestoneFormGoalId(milestoneFormGoalId === goal.id ? null : goal.id)}>
                 {milestoneFormGoalId === goal.id ? "Cancel" : "+ Milestone"}
@@ -140,12 +134,12 @@ export default function ActionPlanPage() {
                     milestoneMutation.mutate(goal.id);
                   }}
                 >
-                  <input
+                  <Input
                     required
                     placeholder="Milestone name"
                     value={milestoneName}
                     onChange={(e) => setMilestoneName(e.target.value)}
-                    className="h-9 flex-1 rounded-lg border border-border bg-transparent px-3 text-sm"
+                    className="h-9 flex-1"
                   />
                   <Button type="submit" size="sm" disabled={milestoneMutation.isPending}>
                     Add
@@ -162,7 +156,9 @@ export default function ActionPlanPage() {
                       <div className="mb-2 flex items-center justify-between">
                         <div>
                           <p className="text-sm font-medium">{milestone.name}</p>
-                          <span className="text-xs text-muted-foreground">{STATUS_LABEL[milestone.status]}</span>
+                          <Badge variant={STATUS_VARIANT[milestone.status]} className="mt-1">
+                            {STATUS_LABEL[milestone.status]}
+                          </Badge>
                         </div>
                         <Button
                           size="sm"
@@ -181,16 +177,12 @@ export default function ActionPlanPage() {
                             if (assignTaskId) assignMutation.mutate({ taskId: assignTaskId, milestoneId: milestone.id });
                           }}
                         >
-                          <select
-                            value={assignTaskId}
-                            onChange={(e) => setAssignTaskId(e.target.value)}
-                            className="h-9 flex-1 rounded-lg border border-border bg-transparent px-2 text-sm"
-                          >
+                          <Select value={assignTaskId} onChange={(e) => setAssignTaskId(e.target.value)} className="h-9 flex-1">
                             <option value="">Select an unplanned task…</option>
                             {unplannedTasks.map((t) => (
                               <option key={t.id} value={t.id}>{t.title}</option>
                             ))}
-                          </select>
+                          </Select>
                           <Button type="submit" size="sm" disabled={!assignTaskId || assignMutation.isPending}>
                             Assign
                           </Button>

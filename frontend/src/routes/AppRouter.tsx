@@ -1,6 +1,7 @@
 import { createBrowserRouter, Navigate, RouterProvider } from "react-router-dom";
 import ProtectedRoute from "@/routes/ProtectedRoute";
-import AppLayout from "@/routes/AppLayout";
+import AppShell from "@/routes/AppLayout";
+import ProjectLayout from "@/routes/ProjectLayout";
 import LoginPage from "@/features/auth/LoginPage";
 import RegisterPage from "@/features/auth/RegisterPage";
 import DashboardPage from "@/features/dashboard/DashboardPage";
@@ -23,16 +24,22 @@ const router = createBrowserRouter([
     element: <ProtectedRoute />,
     children: [
       {
-        element: <AppLayout />,
+        element: <AppShell />,
         children: [
           { path: "/dashboard", element: <DashboardPage /> },
           { path: "/projects", element: <ProjectsPage /> },
-          { path: "/projects/:projectId", element: <TaskListPage /> },
-          { path: "/projects/:projectId/board", element: <KanbanBoard /> },
-          { path: "/projects/:projectId/calendar", element: <CalendarPage /> },
-          { path: "/projects/:projectId/gantt", element: <GanttPage /> },
-          { path: "/projects/:projectId/action-plan", element: <ActionPlanPage /> },
-          { path: "/projects/:projectId/reports", element: <ReportsPage /> },
+          {
+            path: "/projects/:projectId",
+            element: <ProjectLayout />,
+            children: [
+              { index: true, element: <TaskListPage /> },
+              { path: "board", element: <KanbanBoard /> },
+              { path: "calendar", element: <CalendarPage /> },
+              { path: "gantt", element: <GanttPage /> },
+              { path: "action-plan", element: <ActionPlanPage /> },
+              { path: "reports", element: <ReportsPage /> },
+            ],
+          },
           { path: "/team", element: <TeamPage /> },
           { path: "/settings/notifications", element: <NotificationPreferencesPage /> },
           { path: "/gamification", element: <GamificationPage /> },

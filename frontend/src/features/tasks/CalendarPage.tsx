@@ -1,15 +1,15 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useParams } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import FullCalendar from "@fullcalendar/react";
 import dayGridPlugin from "@fullcalendar/daygrid";
 import timeGridPlugin from "@fullcalendar/timegrid";
 import interactionPlugin from "@fullcalendar/interaction";
 import type { EventDropArg } from "@fullcalendar/core";
 import type { EventResizeDoneArg } from "@fullcalendar/interaction";
-import { getProject } from "@/features/projects/api";
 import { listTasks, updateTaskDates } from "@/features/tasks/api";
 import type { Task, TaskPriority, TaskStatus } from "@/features/tasks/types";
+import { Select } from "@/components/ui/select";
 
 const PRIORITY_BG: Record<TaskPriority, string> = {
   critical: "hsl(var(--destructive))",
@@ -27,9 +27,6 @@ function formatLocalDate(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
-// FullCalendar's all-day `end` is exclusive, but our due_date is inclusive
-// (the day the task is due) — so events get +1 day on the way in and -1 on
-// the way back out.
 function taskToEvent(t: Task) {
   const start = t.start_date ?? t.due_date;
   if (!start) return null;
@@ -68,12 +65,6 @@ export default function CalendarPage() {
   const queryClient = useQueryClient();
   const [status, setStatus] = useState<TaskStatus | "">("");
 
-  const { data: project } = useQuery({
-    queryKey: ["project", projectId],
-    queryFn: () => getProject(projectId!),
-    enabled: !!projectId,
-  });
-
   const { data: tasks } = useQuery({
     queryKey: ["tasks", projectId, { status }],
     queryFn: () => listTasks(projectId!, status ? { status } : undefined),
@@ -97,24 +88,16 @@ export default function CalendarPage() {
   const events = (tasks?.items ?? []).map(taskToEvent).filter((e) => e !== null);
 
   return (
-    <div className="min-h-screen p-6">
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <Link to={`/projects/${projectId}`} className="text-sm text-muted-foreground">← List view</Link>
-          <h1 className="text-2xl font-semibold">{project?.name ?? "Calendar"}</h1>
-        </div>
-        <select
-          value={status}
-          onChange={(e) => setStatus(e.target.value as TaskStatus | "")}
-          className="h-10 rounded-lg border border-border bg-transparent px-3 text-sm"
-        >
+    <div className="p-6">
+      <div className="mb-6 flex justify-end">
+        <Select value={status} onChange={(e) => setStatus(e.target.value as TaskStatus | "")} className="w-48">
           <option value="">All statuses</option>
           {STATUSES.map((s) => (
             <option key={s} value={s}>
               {s}
             </option>
           ))}
-        </select>
+        </Select>
       </div>
 
       <div className="glass rounded-xl p-4">

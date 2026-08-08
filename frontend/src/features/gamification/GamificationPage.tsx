@@ -1,10 +1,10 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "react-router-dom";
 import { getLeaderboard, getProfile } from "@/features/gamification/api";
 import type { BadgeCode, MissionType } from "@/features/gamification/types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import { Avatar } from "@/components/ui/avatar";
+import { Tabs, TabButton } from "@/components/ui/tabs";
 
 const BADGE_INFO: Record<BadgeCode, { label: string; emoji: string }> = {
   early_bird: { label: "Early Bird", emoji: "🐦" },
@@ -35,11 +35,8 @@ export default function GamificationPage() {
   const { data: leaderboard } = useQuery({ queryKey: ["gamification-leaderboard"], queryFn: getLeaderboard });
 
   return (
-    <div className="min-h-screen p-6">
-      <div className="mb-6">
-        <Link to="/dashboard" className="text-sm text-muted-foreground">← Dashboard</Link>
-        <h1 className="text-2xl font-semibold">Gamification</h1>
-      </div>
+    <div className="p-6">
+      <h1 className="mb-6 text-2xl font-semibold">Gamification</h1>
 
       {isLoading && <p className="text-muted-foreground">Loading profile…</p>}
 
@@ -136,14 +133,14 @@ export default function GamificationPage() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle>Leaderboard</CardTitle>
-              <div className="flex gap-1 rounded-lg border border-border p-1">
-                <Button size="sm" variant={leaderboardTab === "individual" ? "default" : "ghost"} onClick={() => setLeaderboardTab("individual")}>
+              <Tabs>
+                <TabButton active={leaderboardTab === "individual"} onClick={() => setLeaderboardTab("individual")}>
                   People
-                </Button>
-                <Button size="sm" variant={leaderboardTab === "department" ? "default" : "ghost"} onClick={() => setLeaderboardTab("department")}>
+                </TabButton>
+                <TabButton active={leaderboardTab === "department"} onClick={() => setLeaderboardTab("department")}>
                   Departments
-                </Button>
-              </div>
+                </TabButton>
+              </Tabs>
             </CardHeader>
             <CardContent>
               {leaderboardTab === "individual" ? (
@@ -152,6 +149,7 @@ export default function GamificationPage() {
                     <li key={entry.user_id} className="flex items-center justify-between text-sm">
                       <span className="flex items-center gap-2">
                         <span className="w-5 text-muted-foreground">{i + 1}.</span>
+                        <Avatar name={entry.name} className="h-6 w-6 text-[10px]" />
                         {entry.name}
                       </span>
                       <span className="text-muted-foreground">Lv.{entry.level} · {entry.exp} EXP</span>

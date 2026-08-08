@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Link } from "react-router-dom";
 import { listProjects } from "@/features/projects/api";
 import {
   estimateDuration,
@@ -15,9 +14,9 @@ import {
 } from "@/features/ai/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-
-const inputClass = "h-10 w-full rounded-lg border border-border bg-transparent px-3 text-sm";
-const textareaClass = "w-full rounded-lg border border-border bg-transparent p-3 text-sm";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Select } from "@/components/ui/select";
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -30,24 +29,19 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-function ErrorText({ error }: { error: unknown }) {
-  if (!error) return null;
-  return <p className="text-sm text-destructive">Something went wrong. Please try again.</p>;
-}
-
 export default function AIAssistantPage() {
   const { data: projects } = useQuery({ queryKey: ["projects-for-ai"], queryFn: listProjects });
   const [projectId, setProjectId] = useState("");
 
   const ProjectPicker = (
-    <select value={projectId} onChange={(e) => setProjectId(e.target.value)} className={inputClass}>
+    <Select value={projectId} onChange={(e) => setProjectId(e.target.value)}>
       <option value="">Select a project…</option>
       {projects?.items.map((p) => (
         <option key={p.id} value={p.id}>
           {p.name}
         </option>
       ))}
-    </select>
+    </Select>
   );
 
   // Generate Tasks
@@ -86,11 +80,8 @@ export default function AIAssistantPage() {
   const meeting = useMutation({ mutationFn: () => generateMeetingSummary({ notes }) });
 
   return (
-    <div className="min-h-screen p-6">
+    <div className="p-6">
       <div className="mb-6">
-        <Link to="/dashboard" className="text-sm text-muted-foreground">
-          ← Dashboard
-        </Link>
         <h1 className="text-2xl font-semibold">AI Assistant</h1>
         <p className="text-sm text-muted-foreground">Powered by Claude. Suggestions are a starting point — review before acting on them.</p>
       </div>
@@ -102,8 +93,7 @@ export default function AIAssistantPage() {
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <Section title="Generate Tasks">
-          <textarea
-            className={textareaClass}
+          <Textarea
             rows={3}
             placeholder="Describe a goal or feature, e.g. 'Add password reset via email'"
             value={genPrompt}
@@ -112,7 +102,6 @@ export default function AIAssistantPage() {
           <Button size="sm" disabled={!projectId || !genPrompt || genTasks.isPending} onClick={() => genTasks.mutate()}>
             {genTasks.isPending ? "Generating…" : "Generate tasks"}
           </Button>
-          <ErrorText error={genTasks.error} />
           {genTasks.data && (
             <ul className="flex flex-col gap-2">
               {genTasks.data.tasks.map((t, i) => (
@@ -133,7 +122,6 @@ export default function AIAssistantPage() {
           <Button size="sm" disabled={dailySummary.isPending} onClick={() => dailySummary.mutate()}>
             {dailySummary.isPending ? "Summarizing…" : "Summarize my day"}
           </Button>
-          <ErrorText error={dailySummary.error} />
           {dailySummary.data && <p className="text-sm">{dailySummary.data.summary}</p>}
         </Section>
 
@@ -142,7 +130,6 @@ export default function AIAssistantPage() {
           <Button size="sm" disabled={!projectId || weeklySummary.isPending} onClick={() => weeklySummary.mutate()}>
             {weeklySummary.isPending ? "Summarizing…" : "Summarize this week"}
           </Button>
-          <ErrorText error={weeklySummary.error} />
           {weeklySummary.data && <p className="text-sm">{weeklySummary.data.summary}</p>}
         </Section>
 
@@ -151,7 +138,6 @@ export default function AIAssistantPage() {
           <Button size="sm" disabled={!projectId || productivity.isPending} onClick={() => productivity.mutate()}>
             {productivity.isPending ? "Analyzing…" : "Analyze productivity"}
           </Button>
-          <ErrorText error={productivity.error} />
           {productivity.data && <p className="text-sm">{productivity.data.summary}</p>}
         </Section>
 
@@ -160,7 +146,6 @@ export default function AIAssistantPage() {
           <Button size="sm" disabled={!projectId || lateTasks.isPending} onClick={() => lateTasks.mutate()}>
             {lateTasks.isPending ? "Checking…" : "Predict late tasks"}
           </Button>
-          <ErrorText error={lateTasks.error} />
           {lateTasks.data && (
             <ul className="flex flex-col gap-2">
               {lateTasks.data.at_risk.length === 0 && <li className="text-sm text-muted-foreground">No tasks currently look at risk.</li>}
@@ -175,12 +160,11 @@ export default function AIAssistantPage() {
         </Section>
 
         <Section title="Estimate Duration">
-          <input className={inputClass} placeholder="Task title" value={estTitle} onChange={(e) => setEstTitle(e.target.value)} />
-          <textarea className={textareaClass} rows={2} placeholder="Description" value={estDesc} onChange={(e) => setEstDesc(e.target.value)} />
+          <Input placeholder="Task title" value={estTitle} onChange={(e) => setEstTitle(e.target.value)} />
+          <Textarea rows={2} placeholder="Description" value={estDesc} onChange={(e) => setEstDesc(e.target.value)} />
           <Button size="sm" disabled={!estTitle || estimate.isPending} onClick={() => estimate.mutate()}>
             {estimate.isPending ? "Estimating…" : "Estimate hours"}
           </Button>
-          <ErrorText error={estimate.error} />
           {estimate.data && (
             <p className="text-sm">
               <span className="font-medium">{estimate.data.estimate_hours}h</span> — {estimate.data.reasoning}
@@ -189,12 +173,11 @@ export default function AIAssistantPage() {
         </Section>
 
         <Section title="Suggest Priority">
-          <input className={inputClass} placeholder="Task title" value={prTitle} onChange={(e) => setPrTitle(e.target.value)} />
-          <textarea className={textareaClass} rows={2} placeholder="Description" value={prDesc} onChange={(e) => setPrDesc(e.target.value)} />
+          <Input placeholder="Task title" value={prTitle} onChange={(e) => setPrTitle(e.target.value)} />
+          <Textarea rows={2} placeholder="Description" value={prDesc} onChange={(e) => setPrDesc(e.target.value)} />
           <Button size="sm" disabled={!prTitle || priority.isPending} onClick={() => priority.mutate()}>
             {priority.isPending ? "Thinking…" : "Suggest priority"}
           </Button>
-          <ErrorText error={priority.error} />
           {priority.data && (
             <p className="text-sm">
               <span className="font-medium capitalize">{priority.data.priority}</span> — {priority.data.reasoning}
@@ -203,12 +186,11 @@ export default function AIAssistantPage() {
         </Section>
 
         <Section title="Suggest Assignee">
-          <input className={inputClass} placeholder="Task title" value={asTitle} onChange={(e) => setAsTitle(e.target.value)} />
-          <textarea className={textareaClass} rows={2} placeholder="Description" value={asDesc} onChange={(e) => setAsDesc(e.target.value)} />
+          <Input placeholder="Task title" value={asTitle} onChange={(e) => setAsTitle(e.target.value)} />
+          <Textarea rows={2} placeholder="Description" value={asDesc} onChange={(e) => setAsDesc(e.target.value)} />
           <Button size="sm" disabled={!projectId || !asTitle || assignee.isPending} onClick={() => assignee.mutate()}>
             {assignee.isPending ? "Thinking…" : "Suggest assignee"}
           </Button>
-          <ErrorText error={assignee.error} />
           {assignee.data && (
             <p className="text-sm">
               <span className="font-medium">{assignee.data.assignee_name}</span> — {assignee.data.reasoning}
@@ -217,8 +199,7 @@ export default function AIAssistantPage() {
         </Section>
 
         <Section title="Meeting Summary">
-          <textarea
-            className={textareaClass}
+          <Textarea
             rows={5}
             placeholder="Paste raw meeting notes here…"
             value={notes}
@@ -227,7 +208,6 @@ export default function AIAssistantPage() {
           <Button size="sm" disabled={!notes || meeting.isPending} onClick={() => meeting.mutate()}>
             {meeting.isPending ? "Summarizing…" : "Summarize meeting"}
           </Button>
-          <ErrorText error={meeting.error} />
           {meeting.data && (
             <div className="text-sm">
               <p>{meeting.data.summary}</p>

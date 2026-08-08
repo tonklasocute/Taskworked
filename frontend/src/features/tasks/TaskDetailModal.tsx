@@ -21,8 +21,9 @@ import {
   watchTask,
 } from "@/features/tasks/api";
 import { Button } from "@/components/ui/button";
-
-const inputClass = "h-10 flex-1 rounded-lg border border-border bg-transparent px-3 text-sm";
+import { Input } from "@/components/ui/input";
+import { Avatar } from "@/components/ui/avatar";
+import { Dialog, DialogHeader } from "@/components/ui/dialog";
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -93,142 +94,130 @@ export default function TaskDetailModal({ taskId, onClose }: { taskId: string; o
   const unwatchMutation = useMutation({ mutationFn: () => unwatchTask(taskId), onSuccess: invalidateWatch });
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
-      <div
-        className="glass max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl p-6"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="mb-4 flex items-start justify-between gap-4">
-          <div>
-            <h2 className="text-lg font-semibold">{task?.title ?? "Loading…"}</h2>
-            {task?.description && <p className="mt-1 text-sm text-muted-foreground">{task.description}</p>}
-          </div>
-          <Button size="sm" variant="ghost" onClick={onClose}>
-            ✕
-          </Button>
-        </div>
+    <Dialog onClose={onClose}>
+      <DialogHeader title={task?.title ?? "Loading…"} description={task?.description} onClose={onClose} />
 
-        <div className="mb-4 flex flex-wrap items-center gap-2">
-          {task?.tags.map((tag) => (
-            <span key={tag} className="flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
-              {tag}
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        {task?.tags.map((tag) => (
+          <span key={tag} className="flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+            {tag}
+            <button
+              className="hover:text-destructive"
+              onClick={() => setTagsMutation.mutate((task?.tags ?? []).filter((t) => t !== tag))}
+            >
+              ✕
+            </button>
+          </span>
+        ))}
+        <form
+          className="inline-flex"
+          onSubmit={(e) => {
+            e.preventDefault();
+            const t = tagInput.trim();
+            if (t && !task?.tags.includes(t)) {
+              setTagsMutation.mutate([...(task?.tags ?? []), t]);
+              setTagInput("");
+            }
+          }}
+        >
+          <Input
+            placeholder="+ tag"
+            value={tagInput}
+            onChange={(e) => setTagInput(e.target.value)}
+            className="h-6 w-20 rounded-full px-2 text-xs"
+          />
+        </form>
+      </div>
+
+      <div className="mb-6 flex items-center gap-3">
+        <Button
+          size="sm"
+          variant={watchStatus?.watching ? "default" : "outline"}
+          onClick={() => (watchStatus?.watching ? unwatchMutation.mutate() : watchMutation.mutate())}
+        >
+          {watchStatus?.watching ? "★ Watching" : "☆ Watch"}
+        </Button>
+        <span className="text-xs text-muted-foreground">
+          {watchers?.length ?? 0} watching
+          {watchers && watchers.length > 0 ? `: ${watchers.map((w) => w.name).join(", ")}` : ""}
+        </span>
+      </div>
+
+      <section className="mb-6">
+        <h3 className="mb-2 text-sm font-semibold">Checklist</h3>
+        <ul className="mb-3 flex flex-col gap-1">
+          {checklist?.map((item) => (
+            <li key={item.id} className="flex items-center gap-2 rounded-lg px-2 py-1 text-sm hover:bg-muted">
+              <input
+                type="checkbox"
+                checked={item.done}
+                onChange={(e) => toggleChecklistMutation.mutate({ id: item.id, done: e.target.checked })}
+              />
+              <span className={`flex-1 ${item.done ? "text-muted-foreground line-through" : ""}`}>{item.text}</span>
               <button
-                className="hover:text-destructive"
-                onClick={() => setTagsMutation.mutate((task?.tags ?? []).filter((t) => t !== tag))}
+                className="text-xs text-muted-foreground hover:text-destructive"
+                onClick={() => deleteChecklistMutation.mutate(item.id)}
               >
                 ✕
               </button>
-            </span>
+            </li>
           ))}
-          <form
-            className="inline-flex"
-            onSubmit={(e) => {
-              e.preventDefault();
-              const t = tagInput.trim();
-              if (t && !task?.tags.includes(t)) {
-                setTagsMutation.mutate([...(task?.tags ?? []), t]);
-                setTagInput("");
-              }
-            }}
-          >
-            <input
-              placeholder="+ tag"
-              value={tagInput}
-              onChange={(e) => setTagInput(e.target.value)}
-              className="h-6 w-20 rounded-full border border-border bg-transparent px-2 text-xs"
-            />
-          </form>
-        </div>
-
-        <div className="mb-6 flex items-center gap-3">
-          <Button
-            size="sm"
-            variant={watchStatus?.watching ? "default" : "outline"}
-            onClick={() => (watchStatus?.watching ? unwatchMutation.mutate() : watchMutation.mutate())}
-          >
-            {watchStatus?.watching ? "★ Watching" : "☆ Watch"}
-          </Button>
-          <span className="text-xs text-muted-foreground">
-            {watchers?.length ?? 0} watching
-            {watchers && watchers.length > 0 ? `: ${watchers.map((w) => w.name).join(", ")}` : ""}
-          </span>
-        </div>
-
-        <section className="mb-6">
-          <h3 className="mb-2 text-sm font-semibold">Checklist</h3>
-          <ul className="mb-3 flex flex-col gap-1">
-            {checklist?.map((item) => (
-              <li key={item.id} className="flex items-center gap-2 rounded-lg px-2 py-1 text-sm hover:bg-muted">
-                <input
-                  type="checkbox"
-                  checked={item.done}
-                  onChange={(e) => toggleChecklistMutation.mutate({ id: item.id, done: e.target.checked })}
-                />
-                <span className={`flex-1 ${item.done ? "text-muted-foreground line-through" : ""}`}>{item.text}</span>
-                <button
-                  className="text-xs text-muted-foreground hover:text-destructive"
-                  onClick={() => deleteChecklistMutation.mutate(item.id)}
-                >
-                  ✕
-                </button>
-              </li>
-            ))}
-            {checklist?.length === 0 && <p className="text-sm text-muted-foreground">No checklist items yet.</p>}
-          </ul>
-          <form
-            className="flex gap-2"
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (newChecklistText.trim()) addChecklistMutation.mutate(newChecklistText);
-            }}
-          >
-            <input
-              className={inputClass}
-              placeholder="Add a checklist item…"
-              value={newChecklistText}
-              onChange={(e) => setNewChecklistText(e.target.value)}
-            />
-            <Button type="submit" size="sm" disabled={addChecklistMutation.isPending}>
-              Add
-            </Button>
-          </form>
-        </section>
-
-        <section className="mb-6">
-          <h3 className="mb-2 text-sm font-semibold">Attachments</h3>
-          <ul className="mb-3 flex flex-col gap-2">
-            {attachments?.map((a) => (
-              <li key={a.id} className="flex items-center justify-between rounded-lg border border-border p-2 text-sm">
-                <button className="text-left hover:underline" onClick={() => downloadMutation.mutate(a.id)}>
-                  {a.file_name} <span className="text-xs text-muted-foreground">({formatSize(a.size_bytes)})</span>
-                </button>
-                {a.uploader_id === currentUserId && (
-                  <Button size="sm" variant="ghost" onClick={() => deleteAttachmentMutation.mutate(a.id)}>
-                    Delete
-                  </Button>
-                )}
-              </li>
-            ))}
-            {attachments?.length === 0 && <p className="text-sm text-muted-foreground">No attachments yet.</p>}
-          </ul>
-          <input
-            type="file"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) uploadMutation.mutate(file);
-              e.target.value = "";
-            }}
-            disabled={uploadMutation.isPending}
-            className="text-sm"
+          {checklist?.length === 0 && <p className="text-sm text-muted-foreground">No checklist items yet.</p>}
+        </ul>
+        <form
+          className="flex gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (newChecklistText.trim()) addChecklistMutation.mutate(newChecklistText);
+          }}
+        >
+          <Input
+            placeholder="Add a checklist item…"
+            value={newChecklistText}
+            onChange={(e) => setNewChecklistText(e.target.value)}
           />
-          {uploadMutation.isError && <p className="mt-1 text-xs text-destructive">Upload failed. Is object storage configured?</p>}
-        </section>
+          <Button type="submit" size="sm" disabled={addChecklistMutation.isPending}>
+            Add
+          </Button>
+        </form>
+      </section>
 
-        <section>
-          <h3 className="mb-2 text-sm font-semibold">Comments</h3>
-          <ul className="mb-3 flex flex-col gap-3">
-            {comments?.map((c) => (
-              <li key={c.id} className="rounded-lg border border-border p-3 text-sm">
+      <section className="mb-6">
+        <h3 className="mb-2 text-sm font-semibold">Attachments</h3>
+        <ul className="mb-3 flex flex-col gap-2">
+          {attachments?.map((a) => (
+            <li key={a.id} className="flex items-center justify-between rounded-lg border border-border p-2 text-sm">
+              <button className="text-left hover:underline" onClick={() => downloadMutation.mutate(a.id)}>
+                {a.file_name} <span className="text-xs text-muted-foreground">({formatSize(a.size_bytes)})</span>
+              </button>
+              {a.uploader_id === currentUserId && (
+                <Button size="sm" variant="ghost" onClick={() => deleteAttachmentMutation.mutate(a.id)}>
+                  Delete
+                </Button>
+              )}
+            </li>
+          ))}
+          {attachments?.length === 0 && <p className="text-sm text-muted-foreground">No attachments yet.</p>}
+        </ul>
+        <input
+          type="file"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) uploadMutation.mutate(file);
+            e.target.value = "";
+          }}
+          disabled={uploadMutation.isPending}
+          className="text-sm"
+        />
+      </section>
+
+      <section>
+        <h3 className="mb-2 text-sm font-semibold">Comments</h3>
+        <ul className="mb-3 flex flex-col gap-3">
+          {comments?.map((c) => (
+            <li key={c.id} className="flex gap-3 rounded-lg border border-border p-3 text-sm">
+              <Avatar name={c.author_name} className="mt-0.5" />
+              <div className="flex-1">
                 <div className="mb-1 flex items-center justify-between">
                   <span className="font-medium">{c.author_name}</span>
                   <span className="text-xs text-muted-foreground">{new Date(c.created_at).toLocaleString()}</span>
@@ -242,29 +231,24 @@ export default function TaskDetailModal({ taskId, onClose }: { taskId: string; o
                     Delete
                   </button>
                 )}
-              </li>
-            ))}
-            {comments?.length === 0 && <p className="text-sm text-muted-foreground">No comments yet.</p>}
-          </ul>
-          <form
-            className="flex gap-2"
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (commentBody.trim()) addCommentMutation.mutate();
-            }}
-          >
-            <input
-              className={inputClass}
-              placeholder="Write a comment…"
-              value={commentBody}
-              onChange={(e) => setCommentBody(e.target.value)}
-            />
-            <Button type="submit" size="sm" disabled={addCommentMutation.isPending}>
-              Post
-            </Button>
-          </form>
-        </section>
-      </div>
-    </div>
+              </div>
+            </li>
+          ))}
+          {comments?.length === 0 && <p className="text-sm text-muted-foreground">No comments yet.</p>}
+        </ul>
+        <form
+          className="flex gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (commentBody.trim()) addCommentMutation.mutate();
+          }}
+        >
+          <Input placeholder="Write a comment…" value={commentBody} onChange={(e) => setCommentBody(e.target.value)} />
+          <Button type="submit" size="sm" disabled={addCommentMutation.isPending}>
+            Post
+          </Button>
+        </form>
+      </section>
+    </Dialog>
   );
 }

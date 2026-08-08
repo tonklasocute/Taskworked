@@ -4,6 +4,11 @@ import { Link } from "react-router-dom";
 import { createProject, listProjects } from "@/features/projects/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Badge, type BadgeProps } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
+import { EmptyState } from "@/components/ui/empty-state";
 
 const STATUS_LABEL: Record<string, string> = {
   planning: "Planning",
@@ -11,6 +16,14 @@ const STATUS_LABEL: Record<string, string> = {
   on_hold: "On Hold",
   completed: "Completed",
   archived: "Archived",
+};
+
+const STATUS_VARIANT: Record<string, BadgeProps["variant"]> = {
+  planning: "default",
+  active: "primary",
+  on_hold: "outline",
+  completed: "primary",
+  archived: "default",
 };
 
 export default function ProjectsPage() {
@@ -32,12 +45,9 @@ export default function ProjectsPage() {
   });
 
   return (
-    <div className="min-h-screen p-6">
+    <div className="p-6">
       <div className="mb-6 flex items-center justify-between">
-        <div>
-          <Link to="/dashboard" className="text-sm text-muted-foreground">← Dashboard</Link>
-          <h1 className="text-2xl font-semibold">Projects</h1>
-        </div>
+        <h1 className="text-2xl font-semibold">Projects</h1>
         <Button onClick={() => setShowForm((v) => !v)}>{showForm ? "Cancel" : "New Project"}</Button>
       </div>
 
@@ -54,18 +64,11 @@ export default function ProjectsPage() {
                 mutation.mutate();
               }}
             >
-              <input
-                required
-                placeholder="Project name"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                className="h-10 rounded-lg border border-border bg-transparent px-3 text-sm"
-              />
-              <textarea
+              <Input required placeholder="Project name" value={name} onChange={(e) => setName(e.target.value)} />
+              <Textarea
                 placeholder="Description (optional)"
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
-                className="min-h-20 rounded-lg border border-border bg-transparent px-3 py-2 text-sm"
               />
               <Button type="submit" disabled={mutation.isPending} className="self-start">
                 {mutation.isPending ? "Creating…" : "Create project"}
@@ -75,10 +78,16 @@ export default function ProjectsPage() {
         </Card>
       )}
 
-      {isLoading && <p className="text-muted-foreground">Loading projects…</p>}
+      {isLoading && (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <Skeleton className="h-32 w-full" />
+          <Skeleton className="h-32 w-full" />
+          <Skeleton className="h-32 w-full" />
+        </div>
+      )}
 
       {!isLoading && data?.items.length === 0 && (
-        <p className="text-muted-foreground">No projects yet. Create your first one above.</p>
+        <EmptyState title="No projects yet" description="Create your first one above." />
       )}
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -92,9 +101,7 @@ export default function ProjectsPage() {
                 {project.description && (
                   <p className="mb-3 line-clamp-2 text-sm text-muted-foreground">{project.description}</p>
                 )}
-                <span className="inline-flex rounded-full bg-muted px-2 py-1 text-xs font-medium text-muted-foreground">
-                  {STATUS_LABEL[project.status] ?? project.status}
-                </span>
+                <Badge variant={STATUS_VARIANT[project.status]}>{STATUS_LABEL[project.status] ?? project.status}</Badge>
               </CardContent>
             </Card>
           </Link>

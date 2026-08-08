@@ -1,18 +1,27 @@
 import { useQuery } from "@tanstack/react-query";
-import { useAuthStore } from "@/stores/auth-store";
+import { Link } from "react-router-dom";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { logout } from "@/features/auth/api";
-import { useNavigate, Link } from "react-router-dom";
+import { Badge, type BadgeProps } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
+import { EmptyState } from "@/components/ui/empty-state";
+import { useAuthStore } from "@/stores/auth-store";
 import { getMySummary } from "@/features/tasks/api";
 import { listProjects } from "@/features/projects/api";
 import { getProfile } from "@/features/gamification/api";
+import type { TaskPriority } from "@/features/tasks/types";
 
-const PRIORITY_LABEL: Record<string, string> = {
+const PRIORITY_LABEL: Record<TaskPriority, string> = {
   critical: "Critical",
   high: "High",
   medium: "Medium",
   low: "Low",
+};
+
+const PRIORITY_VARIANT: Record<TaskPriority, BadgeProps["variant"]> = {
+  critical: "destructive",
+  high: "primary",
+  medium: "default",
+  low: "outline",
 };
 
 const LEVEL_EMOJI: Record<string, string> = {
@@ -24,8 +33,6 @@ const LEVEL_EMOJI: Record<string, string> = {
 
 export default function DashboardPage() {
   const user = useAuthStore((s) => s.user);
-  const clear = useAuthStore((s) => s.clear);
-  const navigate = useNavigate();
 
   const { data: summary, isLoading: summaryLoading } = useQuery({ queryKey: ["my-summary"], queryFn: getMySummary });
   const { data: projects } = useQuery({ queryKey: ["projects-for-dashboard"], queryFn: listProjects });
@@ -34,54 +41,40 @@ export default function DashboardPage() {
   const recentProjects = projects?.items.slice(0, 5) ?? [];
 
   return (
-    <div className="min-h-screen p-6">
-      <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Welcome back, {user?.name}</h1>
-        <div className="flex gap-2">
-          <Link to="/projects">
-            <Button variant="outline">Projects</Button>
-          </Link>
-          <Link to="/team">
-            <Button variant="outline">Team</Button>
-          </Link>
-          <Link to="/gamification">
-            <Button variant="outline">Gamification</Button>
-          </Link>
-          <Link to="/ai-assistant">
-            <Button variant="outline">AI Assistant</Button>
-          </Link>
-          <Button
-            variant="outline"
-            onClick={async () => {
-              await logout();
-              clear();
-              navigate("/login");
-            }}
-          >
-            Sign out
-          </Button>
-        </div>
-      </div>
+    <div className="p-6">
+      <h1 className="mb-6 text-2xl font-semibold">Welcome back, {user?.name}</h1>
 
       <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
         <Card>
           <CardContent className="p-5">
             <p className="text-xs text-muted-foreground">Active tasks</p>
-            <p className="mt-1 text-3xl font-semibold">{summary?.active_count ?? (summaryLoading ? "…" : 0)}</p>
+            {summaryLoading ? (
+              <Skeleton className="mt-1 h-9 w-12" />
+            ) : (
+              <p className="mt-1 text-3xl font-semibold">{summary?.active_count ?? 0}</p>
+            )}
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-5">
             <p className="text-xs text-muted-foreground">Overdue</p>
-            <p className={`mt-1 text-3xl font-semibold ${(summary?.overdue_count ?? 0) > 0 ? "text-destructive" : ""}`}>
-              {summary?.overdue_count ?? (summaryLoading ? "…" : 0)}
-            </p>
+            {summaryLoading ? (
+              <Skeleton className="mt-1 h-9 w-12" />
+            ) : (
+              <p className={`mt-1 text-3xl font-semibold ${(summary?.overdue_count ?? 0) > 0 ? "text-destructive" : ""}`}>
+                {summary?.overdue_count ?? 0}
+              </p>
+            )}
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-5">
             <p className="text-xs text-muted-foreground">Due within 3 days</p>
-            <p className="mt-1 text-3xl font-semibold">{summary?.due_soon_count ?? (summaryLoading ? "…" : 0)}</p>
+            {summaryLoading ? (
+              <Skeleton className="mt-1 h-9 w-12" />
+            ) : (
+              <p className="mt-1 text-3xl font-semibold">{summary?.due_soon_count ?? 0}</p>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -92,9 +85,15 @@ export default function DashboardPage() {
             <CardTitle>My Tasks</CardTitle>
           </CardHeader>
           <CardContent>
-            {summaryLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
+            {summaryLoading && (
+              <div className="flex flex-col gap-2">
+                <Skeleton className="h-14 w-full" />
+                <Skeleton className="h-14 w-full" />
+                <Skeleton className="h-14 w-full" />
+              </div>
+            )}
             {summary && summary.tasks.length === 0 && (
-              <p className="text-sm text-muted-foreground">No active tasks assigned to you right now.</p>
+              <EmptyState title="No active tasks" description="Nothing assigned to you right now." />
             )}
             <ul className="flex flex-col gap-2">
               {summary?.tasks.map((t) => (
@@ -103,9 +102,12 @@ export default function DashboardPage() {
                     to={`/projects/${t.project_id}`}
                     className="flex items-center justify-between rounded-lg border border-border p-3 text-sm hover:bg-muted"
                   >
-                    <span className="flex flex-col">
+                    <span className="flex flex-col gap-1">
                       <span className="font-medium">{t.title}</span>
-                      <span className="text-xs text-muted-foreground">{PRIORITY_LABEL[t.priority]} · {t.status}</span>
+                      <span className="flex items-center gap-2">
+                        <Badge variant={PRIORITY_VARIANT[t.priority]}>{PRIORITY_LABEL[t.priority]}</Badge>
+                        <span className="text-xs text-muted-foreground">{t.status}</span>
+                      </span>
                     </span>
                     {t.due_date && <span className="text-xs text-muted-foreground">{t.due_date}</span>}
                   </Link>
@@ -142,7 +144,7 @@ export default function DashboardPage() {
               <CardTitle>Recent Projects</CardTitle>
             </CardHeader>
             <CardContent>
-              {recentProjects.length === 0 && <p className="text-sm text-muted-foreground">No projects yet.</p>}
+              {recentProjects.length === 0 && <EmptyState title="No projects yet" />}
               <ul className="flex flex-col gap-2">
                 {recentProjects.map((p) => (
                   <li key={p.id}>

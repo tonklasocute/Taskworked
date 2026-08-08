@@ -1,13 +1,13 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useParams } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import { DndContext, useDraggable, useDroppable, type DragEndEvent } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
-import { getProject } from "@/features/projects/api";
 import { listTasks, updateTaskStatus } from "@/features/tasks/api";
 import { useTaskSocket } from "@/features/tasks/useTaskSocket";
 import type { Task, TaskPriority, TaskStatus } from "@/features/tasks/types";
 import { Card, CardContent } from "@/components/ui/card";
+import { Badge, type BadgeProps } from "@/components/ui/badge";
 import TaskDetailModal from "@/features/tasks/TaskDetailModal";
 
 const COLUMNS: { status: TaskStatus; label: string }[] = [
@@ -20,23 +20,17 @@ const COLUMNS: { status: TaskStatus; label: string }[] = [
   { status: "blocked", label: "Blocked" },
 ];
 
-const PRIORITY_COLOR: Record<TaskPriority, string> = {
-  critical: "bg-destructive text-destructive-foreground",
-  high: "bg-primary text-primary-foreground",
-  medium: "bg-muted text-muted-foreground",
-  low: "bg-muted text-muted-foreground",
+const PRIORITY_VARIANT: Record<TaskPriority, BadgeProps["variant"]> = {
+  critical: "destructive",
+  high: "primary",
+  medium: "default",
+  low: "outline",
 };
 
 export default function KanbanBoard() {
   const { projectId } = useParams<{ projectId: string }>();
   const queryClient = useQueryClient();
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
-
-  const { data: project } = useQuery({
-    queryKey: ["project", projectId],
-    queryFn: () => getProject(projectId!),
-    enabled: !!projectId,
-  });
 
   const { data: tasks } = useQuery({
     queryKey: ["tasks", projectId],
@@ -63,12 +57,7 @@ export default function KanbanBoard() {
   }
 
   return (
-    <div className="min-h-screen p-6">
-      <div className="mb-6">
-        <Link to={`/projects/${projectId}`} className="text-sm text-muted-foreground">← List view</Link>
-        <h1 className="text-2xl font-semibold">{project?.name ?? "Board"}</h1>
-      </div>
-
+    <div className="p-6">
       <DndContext onDragEnd={handleDragEnd}>
         <div className="flex gap-4 overflow-x-auto pb-4">
           {COLUMNS.map((col) => (
@@ -120,9 +109,7 @@ function BoardColumn({
 function TaskCard({ task, onOpen }: { task: Task; onOpen: () => void }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: task.id });
 
-  const style = transform
-    ? { transform: CSS.Translate.toString(transform), zIndex: 10 }
-    : undefined;
+  const style = transform ? { transform: CSS.Translate.toString(transform), zIndex: 10 } : undefined;
 
   return (
     <Card
@@ -137,13 +124,11 @@ function TaskCard({ task, onOpen }: { task: Task; onOpen: () => void }) {
           <p className="text-sm font-medium hover:underline">{task.title}</p>
         </button>
         <div className="mt-2 flex flex-wrap items-center gap-1">
-          <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${PRIORITY_COLOR[task.priority]}`}>
-            {task.priority}
-          </span>
+          <Badge variant={PRIORITY_VARIANT[task.priority]}>{task.priority}</Badge>
           {task.tags.map((tag) => (
-            <span key={tag} className="inline-flex rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+            <Badge key={tag} variant="default">
               {tag}
-            </span>
+            </Badge>
           ))}
         </div>
       </CardContent>

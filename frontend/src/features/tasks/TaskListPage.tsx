@@ -1,11 +1,15 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useParams } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import { createTask, listTasks, updateTaskStatus } from "@/features/tasks/api";
-import { getProject } from "@/features/projects/api";
 import type { TaskPriority, TaskStatus } from "@/features/tasks/types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
+import { Badge, type BadgeProps } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
+import { EmptyState } from "@/components/ui/empty-state";
 import TaskDetailModal from "@/features/tasks/TaskDetailModal";
 
 const STATUSES: TaskStatus[] = ["backlog", "todo", "doing", "review", "testing", "done", "blocked"];
@@ -18,11 +22,11 @@ const STATUS_LABEL: Record<TaskStatus, string> = {
   done: "Done",
   blocked: "Blocked",
 };
-const PRIORITY_COLOR: Record<TaskPriority, string> = {
-  critical: "bg-destructive text-destructive-foreground",
-  high: "bg-primary text-primary-foreground",
-  medium: "bg-muted text-muted-foreground",
-  low: "bg-muted text-muted-foreground",
+const PRIORITY_VARIANT: Record<TaskPriority, BadgeProps["variant"]> = {
+  critical: "destructive",
+  high: "primary",
+  medium: "default",
+  low: "outline",
 };
 
 export default function TaskListPage() {
@@ -32,12 +36,6 @@ export default function TaskListPage() {
   const [title, setTitle] = useState("");
   const [priority, setPriority] = useState<TaskPriority>("medium");
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
-
-  const { data: project } = useQuery({
-    queryKey: ["project", projectId],
-    queryFn: () => getProject(projectId!),
-    enabled: !!projectId,
-  });
 
   const { data: tasks, isLoading } = useQuery({
     queryKey: ["tasks", projectId],
@@ -60,30 +58,9 @@ export default function TaskListPage() {
   });
 
   return (
-    <div className="min-h-screen p-6">
-      <div className="mb-6 flex items-center justify-between">
-        <div>
-          <Link to="/projects" className="text-sm text-muted-foreground">← Projects</Link>
-          <h1 className="text-2xl font-semibold">{project?.name ?? "Tasks"}</h1>
-        </div>
-        <div className="flex gap-2">
-          <Link to={`/projects/${projectId}/board`}>
-            <Button variant="outline">Board view</Button>
-          </Link>
-          <Link to={`/projects/${projectId}/calendar`}>
-            <Button variant="outline">Calendar view</Button>
-          </Link>
-          <Link to={`/projects/${projectId}/gantt`}>
-            <Button variant="outline">Gantt view</Button>
-          </Link>
-          <Link to={`/projects/${projectId}/action-plan`}>
-            <Button variant="outline">Action Plan</Button>
-          </Link>
-          <Link to={`/projects/${projectId}/reports`}>
-            <Button variant="outline">Reports</Button>
-          </Link>
-          <Button onClick={() => setShowForm((v) => !v)}>{showForm ? "Cancel" : "New Task"}</Button>
-        </div>
+    <div className="p-6">
+      <div className="mb-6 flex items-center justify-end">
+        <Button onClick={() => setShowForm((v) => !v)}>{showForm ? "Cancel" : "New Task"}</Button>
       </div>
 
       {showForm && (
@@ -99,23 +76,19 @@ export default function TaskListPage() {
                 createMutation.mutate();
               }}
             >
-              <input
+              <Input
                 required
                 placeholder="Task title"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                className="h-10 flex-1 rounded-lg border border-border bg-transparent px-3 text-sm"
+                className="flex-1"
               />
-              <select
-                value={priority}
-                onChange={(e) => setPriority(e.target.value as TaskPriority)}
-                className="h-10 rounded-lg border border-border bg-transparent px-3 text-sm"
-              >
+              <Select value={priority} onChange={(e) => setPriority(e.target.value as TaskPriority)} className="sm:w-40">
                 <option value="critical">Critical</option>
                 <option value="high">High</option>
                 <option value="medium">Medium</option>
                 <option value="low">Low</option>
-              </select>
+              </Select>
               <Button type="submit" disabled={createMutation.isPending}>
                 {createMutation.isPending ? "Creating…" : "Create task"}
               </Button>
@@ -124,10 +97,16 @@ export default function TaskListPage() {
         </Card>
       )}
 
-      {isLoading && <p className="text-muted-foreground">Loading tasks…</p>}
+      {isLoading && (
+        <div className="flex flex-col gap-3">
+          <Skeleton className="h-16 w-full" />
+          <Skeleton className="h-16 w-full" />
+          <Skeleton className="h-16 w-full" />
+        </div>
+      )}
 
       {!isLoading && tasks?.items.length === 0 && (
-        <p className="text-muted-foreground">No tasks yet. Create your first one above.</p>
+        <EmptyState title="No tasks yet" description="Create your first one above." />
       )}
 
       <div className="flex flex-col gap-3">
@@ -136,21 +115,21 @@ export default function TaskListPage() {
             <CardContent className="flex flex-wrap items-center justify-between gap-3 py-4">
               <button className="text-left" onClick={() => setOpenTaskId(t.id)}>
                 <p className="font-medium hover:underline">{t.title}</p>
-                <span className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${PRIORITY_COLOR[t.priority]}`}>
+                <Badge variant={PRIORITY_VARIANT[t.priority]} className="mt-1">
                   {t.priority}
-                </span>
+                </Badge>
               </button>
-              <select
+              <Select
                 value={t.status}
                 onChange={(e) => statusMutation.mutate({ id: t.id, status: e.target.value as TaskStatus })}
-                className="h-9 rounded-lg border border-border bg-transparent px-2 text-sm"
+                className="h-9 w-40"
               >
                 {STATUSES.map((s) => (
                   <option key={s} value={s}>
                     {STATUS_LABEL[s]}
                   </option>
                 ))}
-              </select>
+              </Select>
             </CardContent>
           </Card>
         ))}
