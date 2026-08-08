@@ -13,7 +13,4 @@ frontend: ## run the Vite dev server alone
 	cd frontend && npm run dev
 
 dev: ## run backend + frontend together (Ctrl+C stops both)
-	@trap 'kill 0' EXIT; \
-	$(MAKE) backend & \
-	$(MAKE) frontend & \
-	wait
+	$(MAKE) -j2 backend frontend
