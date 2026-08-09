@@ -17,11 +17,15 @@ func NewHandler(service Service) *Handler {
 	return &Handler{service: service, validate: validator.New()}
 }
 
-func (h *Handler) RegisterRoutes(router fiber.Router, authRequired fiber.Handler) {
+// authLimiter is applied only to the unauthenticated, credential-guessable
+// endpoints (register/login/refresh) — a stricter limit than the rest of
+// the API, since these are the ones brute-force/credential-stuffing attacks
+// target. logout doesn't need it: it already requires a valid access token.
+func (h *Handler) RegisterRoutes(router fiber.Router, authRequired fiber.Handler, authLimiter fiber.Handler) {
 	r := router.Group("/auth")
-	r.Post("/register", h.register)
-	r.Post("/login", h.login)
-	r.Post("/refresh", h.refresh)
+	r.Post("/register", authLimiter, h.register)
+	r.Post("/login", authLimiter, h.login)
+	r.Post("/refresh", authLimiter, h.refresh)
 	r.Post("/logout", authRequired, h.logout)
 }
 

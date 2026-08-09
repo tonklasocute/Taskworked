@@ -118,6 +118,15 @@ func testConfig(dbDSN string) *config.Config {
 		MinioAccessKey:      os.Getenv("MINIO_ACCESS_KEY"),
 		MinioSecretKey:      os.Getenv("MINIO_SECRET_KEY"),
 		MinioBucket:         "taskworked-e2e",
+
+		// High enough that no existing scenario (a handful of requests per
+		// test) ever trips it, but explicit rather than relying on
+		// zero-value/library-default behavior — see resilience_test.go for
+		// the test that deliberately exercises the auth-specific limit.
+		RateLimitGlobalMax:    1000,
+		RateLimitGlobalWindow: time.Minute,
+		RateLimitAuthMax:      5,
+		RateLimitAuthWindow:   time.Minute,
 	}
 }
 

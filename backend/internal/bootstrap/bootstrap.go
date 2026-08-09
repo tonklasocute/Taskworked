@@ -11,7 +11,9 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
+	"github.com/gofiber/fiber/v2/middleware/limiter"
 	"github.com/gofiber/fiber/v2/middleware/logger"
+	"github.com/gofiber/fiber/v2/middleware/recover"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 	"github.com/robfig/cron/v3"
@@ -211,8 +213,37 @@ func New(cfg *config.Config, db *gorm.DB, redisClient *redis.Client) *App {
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"success": false, "error": "internal server error"})
 		},
 	})
+	// recover must be the outermost middleware: without it, a panic
+	// anywhere in a handler (nil deref, bad type assertion, etc.) crashes
+	// the whole process and drops every other in-flight request, not just
+	// the one that panicked.
+	app.Use(recover.New())
 	app.Use(logger.New())
 	app.Use(cors.New())
+
+	// Global rate limit protects every route from gross abuse; the auth
+	// group additionally gets a much stricter limit below (see
+	// RegisterRoutes call) since register/login/refresh are the
+	// specifically credential-guessable endpoints. Both are in-memory
+	// (per-process) — correct for today's single-instance deployment; if
+	// the API is ever run as multiple replicas, swap in a shared store
+	// (e.g. a Redis-backed fiber/storage/redis, since Redis is already a
+	// dependency here) so limits are enforced across instances, not reset
+	// per-replica.
+	app.Use(limiter.New(limiter.Config{
+		Max:        cfg.RateLimitGlobalMax,
+		Expiration: cfg.RateLimitGlobalWindow,
+		LimitReached: func(c *fiber.Ctx) error {
+			return c.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{"success": false, "error": "too many requests"})
+		},
+	}))
+	authLimiter := limiter.New(limiter.Config{
+		Max:        cfg.RateLimitAuthMax,
+		Expiration: cfg.RateLimitAuthWindow,
+		LimitReached: func(c *fiber.Ctx) error {
+			return c.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{"success": false, "error": "too many requests"})
+		},
+	})
 
 	app.Get("/health", func(c *fiber.Ctx) error {
 		return c.JSON(fiber.Map{"status": "ok"})
@@ -230,7 +261,7 @@ func New(cfg *config.Config, db *gorm.DB, redisClient *redis.Client) *App {
 	})
 
 	api := app.Group("/api/v1")
-	authHandler.RegisterRoutes(api, requireAuth)
+	authHandler.RegisterRoutes(api, requireAuth, authLimiter)
 	authHandler.RegisterUserRoutes(api.Group("", requireAuth, trackPresence))
 	projectHandler.RegisterRoutes(api.Group("", requireAuth, trackPresence))
 	taskHandler.RegisterRoutes(api.Group("", requireAuth, trackPresence))
