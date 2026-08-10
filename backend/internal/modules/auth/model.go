@@ -28,6 +28,11 @@ type User struct {
 	// it's a value the user record carries, and only the owning module
 	// needs the type it belongs to.
 	DepartmentID *uuid.UUID `gorm:"type:uuid;index"`
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	// OrganizationID is populated for every user by migration 0002 (P1.1)
+	// but not yet read by any authorization check — that lands in P1.2.
+	// Nullable/no FK for now; see
+	// docs/superpowers/specs/2026-08-10-p1-organization-architecture-audit.md §9.
+	OrganizationID *uuid.UUID `gorm:"type:uuid;index"`
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
 }

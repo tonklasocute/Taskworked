@@ -41,6 +41,7 @@ import (
 	"github.com/khomkrittk/taskworked/backend/internal/bootstrap"
 	"github.com/khomkrittk/taskworked/backend/internal/config"
 	"github.com/khomkrittk/taskworked/backend/internal/platform/database"
+	"github.com/khomkrittk/taskworked/backend/internal/platform/migrator"
 )
 
 func TestMain(m *testing.M) {
@@ -145,12 +146,12 @@ func newTestApp(t *testing.T, dbName string) *fiber.App {
 	resetDatabase(t, baseDSN, dbName)
 	_, testDSN := serverAndTestDSN(t, baseDSN, dbName)
 
+	if err := migrator.Up(testDSN); err != nil {
+		t.Fatalf("migrate test database: %v", err)
+	}
 	db, err := database.Connect(testDSN)
 	if err != nil {
 		t.Fatalf("connect to test database: %v", err)
-	}
-	if err := bootstrap.Migrate(db); err != nil {
-		t.Fatalf("migrate test database: %v", err)
 	}
 
 	cfg := testConfig(testDSN)

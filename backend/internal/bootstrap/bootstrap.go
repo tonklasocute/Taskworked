@@ -100,22 +100,6 @@ const swaggerUIPage = `<!DOCTYPE html>
 </body>
 </html>`
 
-// Migrate runs AutoMigrate for every module's models. Callers own the
-// database connection (main connects to the configured DATABASE_URL; the
-// E2E suite connects to its own throwaway test database).
-func Migrate(db *gorm.DB) error {
-	return db.AutoMigrate(
-		&auth.User{},
-		&project.Project{}, &project.Member{},
-		&task.Task{}, &task.ChecklistItem{}, &task.Tag{}, &task.Dependency{},
-		&task.Comment{}, &task.Attachment{}, &task.Watcher{},
-		&actionplan.Goal{}, &actionplan.Milestone{},
-		&team.Department{},
-		&notification.Notification{}, &notification.Preference{},
-		&gamification.Character{}, &gamification.Badge{}, &gamification.MissionProgress{},
-	)
-}
-
 // App bundles the wired Fiber app with the background jobs main() starts
 // alongside it (cron digests, the Redis pub/sub subscriber feeding
 // WebSocket broadcasts) so callers can start and stop them together.

@@ -39,6 +39,20 @@ services:
       - "9000:9000"
       - "9001:9001"
 
+  # One-shot: applies pending versioned migrations (backend/migrations),
+  # then exits. `api` waits for this to complete successfully before it
+  # starts — see cmd/api/main.go's fail-fast schema-version check for the
+  # other half of this safety net (in case someone runs `api` without
+  # compose, bypassing this dependency).
+  migrate:
+    build: ./backend
+    entrypoint: ["/usr/local/bin/migrate"]
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-taskworked}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-taskworked}?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   api:
     build: ./backend
     environment:
@@ -70,6 +84,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
 
   web:
     build: ./frontend

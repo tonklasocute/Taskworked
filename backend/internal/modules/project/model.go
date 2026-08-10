@@ -25,8 +25,12 @@ type Project struct {
 	DueDate     *time.Time
 	Color       string
 	Icon        string
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	// OrganizationID is populated for every project by migration 0002
+	// (P1.1) but not yet read by any authorization check — see
+	// auth.User.OrganizationID's comment.
+	OrganizationID *uuid.UUID `gorm:"type:uuid;index"`
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
 }
 
 // MemberRole is project-scoped and distinct from the org-level Role in the

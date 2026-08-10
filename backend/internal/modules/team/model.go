@@ -10,7 +10,13 @@ import (
 )
 
 type Department struct {
-	ID        uuid.UUID `gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
-	Name      string    `gorm:"not null;uniqueIndex"`
-	CreatedAt time.Time
+	ID   uuid.UUID `gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
+	Name string    `gorm:"not null;uniqueIndex"`
+	// OrganizationID is populated for every department by migration 0002
+	// (P1.1) but not yet read anywhere — see auth.User.OrganizationID's
+	// comment. Note the uniqueIndex on Name above stays *global* for now;
+	// scoping it to (organization_id, name) is part of the deferred
+	// constraint-tightening migration, not this one.
+	OrganizationID *uuid.UUID `gorm:"type:uuid;index"`
+	CreatedAt      time.Time
 }

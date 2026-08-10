@@ -1,9 +1,12 @@
-.PHONY: dev backend frontend infra e2e backup backup-verify restore-postgres restore-minio
+.PHONY: dev backend frontend infra e2e migrate backup backup-verify restore-postgres restore-minio
 
 infra: ## start Postgres, Redis, MinIO
 	docker compose up postgres redis minio
 
-backend: ## run the Go API alone
+migrate: ## apply pending DB migrations against local infra (needs `make infra` running)
+	cd backend && go run ./cmd/migrate
+
+backend: ## run the Go API alone (run `make migrate` first)
 	cd backend && go run ./cmd/api
 
 e2e: ## run the E2E suite against local infra (needs `make infra` running)
