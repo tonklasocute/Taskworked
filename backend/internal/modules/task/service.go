@@ -390,14 +390,17 @@ func (s *service) Delete(ctx context.Context, actorID uuid.UUID, actorRole auth.
 		return notFoundOrInternal(err)
 	}
 
-	if !auth.IsOrgAdmin(actorRole) {
-		_, isManager, err := s.projectSvc.CheckMembership(ctx, actorID, actorRole, t.ProjectID)
-		if err != nil {
-			return apperrors.Internal("failed to check permissions")
-		}
-		if actorID != t.ReporterID && !isManager {
-			return apperrors.Forbidden("only the reporter or a project manager can delete this task")
-		}
+	// Same reasoning as requireCanEdit: CheckMembership already grants org
+	// admins manager access within their own organization — checking
+	// IsOrgAdmin first (as this used to) would skip the organization
+	// match, letting an admin from a different organization delete this
+	// task if they knew/guessed its ID.
+	_, isManager, err := s.projectSvc.CheckMembership(ctx, actorID, actorRole, t.ProjectID)
+	if err != nil {
+		return apperrors.Internal("failed to check permissions")
+	}
+	if actorID != t.ReporterID && !isManager {
+		return apperrors.Forbidden("only the reporter or a project manager can delete this task")
 	}
 
 	if err := s.repo.Delete(ctx, id); err != nil {
@@ -1066,11 +1069,16 @@ func (s *service) requireMembership(ctx context.Context, actorID uuid.UUID, acto
 }
 
 // requireCanEdit allows the task's assignee, its reporter, a project
-// manager (owner-role member), or an org admin to modify it.
+// manager (owner-role member), or an org admin *of the task's own
+// organization* to modify it.
+//
+// Deliberately does NOT short-circuit on auth.IsOrgAdmin(actorRole) before
+// checking membership — CheckMembership already grants org admins manager
+// access within their own organization, but doing the role check first
+// (as this function used to) skipped CheckMembership's organization-match
+// entirely, letting an org admin from a *different* organization pass
+// this gate for any task by ID. See the P1.2 tenant isolation audit.
 func (s *service) requireCanEdit(ctx context.Context, actorID uuid.UUID, actorRole auth.Role, t *Task) error {
-	if auth.IsOrgAdmin(actorRole) {
-		return nil
-	}
 	if actorID == t.ReporterID || (t.AssigneeID != nil && actorID == *t.AssigneeID) {
 		return nil
 	}

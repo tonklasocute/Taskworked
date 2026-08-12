@@ -25,7 +25,11 @@ func (h *Handler) RegisterRoutes(router fiber.Router) {
 }
 
 func (h *Handler) directory(c *fiber.Ctx) error {
-	result, err := h.service.GetDirectory(c.Context())
+	actorID, err := httpctx.ActorID(c)
+	if err != nil {
+		return httpctx.WriteErr(c, err)
+	}
+	result, err := h.service.GetDirectory(c.Context(), actorID)
 	if err != nil {
 		return httpctx.WriteErr(c, err)
 	}
@@ -41,7 +45,11 @@ func (h *Handler) createDepartment(c *fiber.Ctx) error {
 		return response.Err(c, fiber.StatusBadRequest, err.Error())
 	}
 
-	result, err := h.service.CreateDepartment(c.Context(), auth.Role(httpctx.ActorRole(c)), req)
+	actorID, err := httpctx.ActorID(c)
+	if err != nil {
+		return httpctx.WriteErr(c, err)
+	}
+	result, err := h.service.CreateDepartment(c.Context(), actorID, auth.Role(httpctx.ActorRole(c)), req)
 	if err != nil {
 		return httpctx.WriteErr(c, err)
 	}
@@ -54,7 +62,11 @@ func (h *Handler) deleteDepartment(c *fiber.Ctx) error {
 		return response.Err(c, fiber.StatusBadRequest, "invalid department id")
 	}
 
-	if err := h.service.DeleteDepartment(c.Context(), auth.Role(httpctx.ActorRole(c)), id); err != nil {
+	actorID, err := httpctx.ActorID(c)
+	if err != nil {
+		return httpctx.WriteErr(c, err)
+	}
+	if err := h.service.DeleteDepartment(c.Context(), actorID, auth.Role(httpctx.ActorRole(c)), id); err != nil {
 		return httpctx.WriteErr(c, err)
 	}
 	return response.OK(c, fiber.Map{"message": "department deleted"})

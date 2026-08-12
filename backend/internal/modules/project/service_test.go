@@ -29,19 +29,22 @@ func (f *fakeRepository) Create(_ context.Context, p *Project) error {
 	return nil
 }
 
-func (f *fakeRepository) FindByID(_ context.Context, id uuid.UUID) (*Project, error) {
+func (f *fakeRepository) FindByID(_ context.Context, id, organizationID uuid.UUID) (*Project, error) {
 	p, ok := f.projects[id]
-	if !ok {
+	if !ok || p.OrganizationID == nil || *p.OrganizationID != organizationID {
 		return nil, ErrNotFound
 	}
 	return p, nil
 }
 
-func (f *fakeRepository) ListForMember(_ context.Context, userID uuid.UUID, filter ListFilter) ([]Project, int64, error) {
+func (f *fakeRepository) ListForMember(_ context.Context, userID, organizationID uuid.UUID, filter ListFilter) ([]Project, int64, error) {
 	var result []Project
 	for projectID, members := range f.members {
 		if _, ok := members[userID]; ok {
-			result = append(result, *f.projects[projectID])
+			p := f.projects[projectID]
+			if p.OrganizationID != nil && *p.OrganizationID == organizationID {
+				result = append(result, *p)
+			}
 		}
 	}
 	return result, int64(len(result)), nil
@@ -97,7 +100,7 @@ func appErrStatus(t *testing.T, err error) int {
 
 func TestCreate_AddsCreatorAsOwnerMember(t *testing.T) {
 	repo := newFakeRepository()
-	svc := NewService(repo, nil)
+	svc := NewService(repo, newFakeAuthService())
 	owner := uuid.New()
 
 	resp, err := svc.Create(context.Background(), owner, CreateRequest{Name: "Website Revamp"})
@@ -120,7 +123,7 @@ func TestCreate_AddsCreatorAsOwnerMember(t *testing.T) {
 
 func TestGet_NonMemberIsForbidden(t *testing.T) {
 	repo := newFakeRepository()
-	svc := NewService(repo, nil)
+	svc := NewService(repo, newFakeAuthService())
 	owner := uuid.New()
 	outsider := uuid.New()
 
@@ -136,9 +139,40 @@ func TestGet_NonMemberIsForbidden(t *testing.T) {
 	}
 }
 
+// TestGet_CrossOrganizationProjectIsNotFound is the unit-level regression
+// guard for P1.2's core requirement: a project in a different organization
+// must be indistinguishable from a nonexistent one, even for an org admin
+// (today's admin role has no cross-organization reach — see the P1.2
+// tenant isolation audit). Full end-to-end coverage (real Postgres, real
+// HTTP, every resource type) lives in backend/e2e/tenant_isolation_test.go.
+func TestGet_CrossOrganizationProjectIsNotFound(t *testing.T) {
+	repo := newFakeRepository()
+	authSvc := newFakeAuthService()
+	svc := NewService(repo, authSvc)
+
+	orgAOwner := uuid.New()
+	orgBAdmin := uuid.New()
+	otherOrgID := uuid.New()
+	authSvc.setOrg(orgBAdmin, otherOrgID)
+
+	resp, err := svc.Create(context.Background(), orgAOwner, CreateRequest{Name: "Org A Project"})
+	if err != nil {
+		t.Fatalf("unexpected error creating project: %v", err)
+	}
+	projectID, _ := uuid.Parse(resp.ID)
+
+	_, err = svc.Get(context.Background(), orgBAdmin, auth.RoleAdmin, projectID)
+	if err == nil {
+		t.Fatal("expected an error for a project in a different organization, got nil")
+	}
+	if status := appErrStatus(t, err); status != 404 {
+		t.Errorf("expected 404 (not found, not 403 forbidden — a cross-org project must look identical to a nonexistent one), got %d", status)
+	}
+}
+
 func TestGet_OrgAdminCanViewAnyProject(t *testing.T) {
 	repo := newFakeRepository()
-	svc := NewService(repo, nil)
+	svc := NewService(repo, newFakeAuthService())
 	owner := uuid.New()
 	admin := uuid.New()
 
@@ -152,7 +186,7 @@ func TestGet_OrgAdminCanViewAnyProject(t *testing.T) {
 
 func TestUpdate_PlainMemberCannotUpdate(t *testing.T) {
 	repo := newFakeRepository()
-	svc := NewService(repo, nil)
+	svc := NewService(repo, newFakeAuthService())
 	owner := uuid.New()
 	member := uuid.New()
 
@@ -172,7 +206,7 @@ func TestUpdate_PlainMemberCannotUpdate(t *testing.T) {
 
 func TestUpdate_OwnerCanUpdate(t *testing.T) {
 	repo := newFakeRepository()
-	svc := NewService(repo, nil)
+	svc := NewService(repo, newFakeAuthService())
 	owner := uuid.New()
 
 	resp, _ := svc.Create(context.Background(), owner, CreateRequest{Name: "Internal Tool"})
@@ -190,7 +224,7 @@ func TestUpdate_OwnerCanUpdate(t *testing.T) {
 
 func TestRemoveMember_CannotRemoveOwner(t *testing.T) {
 	repo := newFakeRepository()
-	svc := NewService(repo, nil)
+	svc := NewService(repo, newFakeAuthService())
 	owner := uuid.New()
 
 	resp, _ := svc.Create(context.Background(), owner, CreateRequest{Name: "Internal Tool"})
@@ -205,19 +239,59 @@ func TestRemoveMember_CannotRemoveOwner(t *testing.T) {
 	}
 }
 
+// testOrgID is the organization every actor in these tests belongs to
+// unless a test explicitly registers a different one via
+// fakeAuthService.setOrg — these are permission/membership tests, not
+// tenant-isolation tests (that's covered at the e2e level with a real
+// Postgres — see backend/e2e/tenant_isolation_test.go), so defaulting
+// everyone to one shared org preserves each existing test's original
+// same-org scenario without having to register every ad-hoc uuid.New()
+// actor explicitly.
+var testOrgID = uuid.New()
+
 // fakeAuthService is a minimal stand-in for auth.Service — only
-// GetUsersByIDs is exercised by ListMembers.
+// GetUsersByIDs, GetOrganizationID, and ListUsersByOrganization are
+// exercised by this package's tests.
 type fakeAuthService struct {
 	usersByID map[uuid.UUID]auth.UserResponse
+	orgByUser map[uuid.UUID]uuid.UUID
 }
 
 func newFakeAuthService(users ...auth.UserResponse) *fakeAuthService {
-	f := &fakeAuthService{usersByID: make(map[uuid.UUID]auth.UserResponse)}
+	f := &fakeAuthService{usersByID: make(map[uuid.UUID]auth.UserResponse), orgByUser: make(map[uuid.UUID]uuid.UUID)}
 	for _, u := range users {
 		id, _ := uuid.Parse(u.ID)
 		f.usersByID[id] = u
 	}
 	return f
+}
+
+// setOrg registers actorID as belonging to a specific organization,
+// overriding the testOrgID default — used by tests that specifically
+// exercise cross-organization behavior.
+func (f *fakeAuthService) setOrg(actorID, organizationID uuid.UUID) {
+	f.orgByUser[actorID] = organizationID
+}
+
+func (f *fakeAuthService) GetOrganizationID(_ context.Context, userID uuid.UUID) (uuid.UUID, error) {
+	if orgID, ok := f.orgByUser[userID]; ok {
+		return orgID, nil
+	}
+	return testOrgID, nil
+}
+
+func (f *fakeAuthService) ListUsersByOrganization(_ context.Context, organizationID uuid.UUID) ([]auth.UserResponse, error) {
+	var result []auth.UserResponse
+	for id, u := range f.usersByID {
+		orgID := testOrgID
+		if o, ok := f.orgByUser[id]; ok {
+			orgID = o
+		}
+		if orgID == organizationID {
+			result = append(result, u)
+		}
+	}
+	return result, nil
 }
 
 func (f *fakeAuthService) GetUsersByIDs(_ context.Context, ids []uuid.UUID) ([]auth.UserResponse, error) {
@@ -243,10 +317,10 @@ func (f *fakeAuthService) Logout(context.Context, string) error { panic("not imp
 func (f *fakeAuthService) ListUsers(context.Context) ([]auth.UserResponse, error) {
 	panic("not implemented")
 }
-func (f *fakeAuthService) UpdateRole(context.Context, auth.Role, uuid.UUID, auth.UpdateRoleRequest) (*auth.UserResponse, error) {
+func (f *fakeAuthService) UpdateRole(context.Context, uuid.UUID, auth.Role, uuid.UUID, auth.UpdateRoleRequest) (*auth.UserResponse, error) {
 	panic("not implemented")
 }
-func (f *fakeAuthService) UpdateDepartment(context.Context, auth.Role, uuid.UUID, auth.UpdateDepartmentRequest) (*auth.UserResponse, error) {
+func (f *fakeAuthService) UpdateDepartment(context.Context, uuid.UUID, auth.Role, uuid.UUID, auth.UpdateDepartmentRequest) (*auth.UserResponse, error) {
 	panic("not implemented")
 }
 
@@ -288,7 +362,7 @@ func TestListMembers_NonMemberForbidden(t *testing.T) {
 
 func TestAddMember_ByPlainMemberIsForbidden(t *testing.T) {
 	repo := newFakeRepository()
-	svc := NewService(repo, nil)
+	svc := NewService(repo, newFakeAuthService())
 	owner := uuid.New()
 	member := uuid.New()
 	newUser := uuid.New()

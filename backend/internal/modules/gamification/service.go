@@ -18,9 +18,11 @@ type TaskService interface {
 }
 
 // TeamService is the slice of team.Service the leaderboard needs — the
-// directory already carries name + department in one call.
+// directory already carries name + department in one call, and is
+// organization-scoped to actorID's own organization (see
+// team.Service.GetDirectory).
 type TeamService interface {
-	GetDirectory(ctx context.Context) (*team.DirectoryResponse, error)
+	GetDirectory(ctx context.Context, actorID uuid.UUID) (*team.DirectoryResponse, error)
 }
 
 type Service interface {
@@ -30,7 +32,9 @@ type Service interface {
 	OnTaskCompleted(ctx context.Context, userID uuid.UUID, completedAt time.Time, dueDate *time.Time, priority task.Priority) error
 
 	GetProfile(ctx context.Context, actorID uuid.UUID) (*ProfileResponse, error)
-	GetLeaderboard(ctx context.Context) (*LeaderboardResponse, error)
+	// GetLeaderboard is scoped to actorID's own organization — see
+	// GetDirectory's comment above and the implementation below for how.
+	GetLeaderboard(ctx context.Context, actorID uuid.UUID) (*LeaderboardResponse, error)
 }
 
 type service struct {
@@ -229,13 +233,21 @@ func (s *service) missionStatus(ctx context.Context, userID uuid.UUID, typ Missi
 	return MissionResponse{Type: typ, Count: m.Count, Threshold: threshold, Reward: reward, Completed: m.Rewarded}
 }
 
-func (s *service) GetLeaderboard(ctx context.Context) (*LeaderboardResponse, error) {
+func (s *service) GetLeaderboard(ctx context.Context, actorID uuid.UUID) (*LeaderboardResponse, error) {
+	// The leaderboard is intentionally an organization-level feature, not
+	// a global one — see the P1.2 tenant isolation audit §12. Characters
+	// are keyed only by user_id with no organization_id of their own (see
+	// gamification.Character), so scoping happens by intersecting against
+	// the actor's own organization's member directory below, rather than
+	// a direct query filter — every character NOT found in that directory
+	// is filtered out entirely (see the "ok" check below), not merely
+	// displayed with a blanked-out name as the pre-P1.2 code did.
 	characters, err := s.repo.ListCharacters(ctx)
 	if err != nil {
 		return nil, apperrors.Internal("failed to load leaderboard")
 	}
 
-	directory, err := s.teamSvc.GetDirectory(ctx)
+	directory, err := s.teamSvc.GetDirectory(ctx, actorID)
 	if err != nil {
 		return nil, err
 	}
@@ -248,13 +260,17 @@ func (s *service) GetLeaderboard(ctx context.Context) (*LeaderboardResponse, err
 	deptTotals := make(map[string]*DepartmentLeaderboardEntry)
 	for _, c := range characters {
 		member, ok := memberByID[c.UserID.String()]
-		name := c.UserID.String()
-		if ok {
-			name = member.Name
+		if !ok {
+			// Not a member of the actor's organization — exclude entirely,
+			// don't just fall back to displaying their raw user ID as a
+			// name (that was the pre-P1.2 behavior and leaked the fact
+			// that a character with that ID exists at all, across org
+			// boundaries).
+			continue
 		}
-		individuals = append(individuals, LeaderboardEntry{UserID: c.UserID.String(), Name: name, Level: c.Level, EXP: c.EXP})
+		individuals = append(individuals, LeaderboardEntry{UserID: c.UserID.String(), Name: member.Name, Level: c.Level, EXP: c.EXP})
 
-		if ok && member.DepartmentID != "" {
+		if member.DepartmentID != "" {
 			dept := deptTotals[member.DepartmentID]
 			if dept == nil {
 				dept = &DepartmentLeaderboardEntry{DepartmentID: member.DepartmentID, DepartmentName: member.DepartmentName}

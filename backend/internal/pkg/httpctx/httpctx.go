@@ -30,6 +30,23 @@ func ActorRole(c *fiber.Ctx) string {
 	return role
 }
 
+// ActorOrgID returns the organization_id claim stashed by
+// middleware.RequireAuth. This is the stateless/cheap read path (see
+// auth.Claims.OrganizationID) — most authorization code should prefer a
+// fresh server-side lookup (auth.Service.GetOrganizationID) over trusting
+// this claim, so a user removed from an organization loses access
+// immediately rather than only after their token expires. Use this helper
+// where a DB round-trip isn't otherwise happening (e.g. WebSocket handshake,
+// structured logging), not as the enforcement mechanism itself.
+func ActorOrgID(c *fiber.Ctx) (uuid.UUID, error) {
+	raw, _ := c.Locals("organizationID").(string)
+	id, err := uuid.Parse(raw)
+	if err != nil {
+		return uuid.Nil, apperrors.Unauthorized("invalid organization context")
+	}
+	return id, nil
+}
+
 func WriteErr(c *fiber.Ctx, err error) error {
 	var appErr *apperrors.AppError
 	if errors.As(err, &appErr) {

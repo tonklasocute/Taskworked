@@ -17,6 +17,9 @@ type Repository interface {
 	UpdatePassword(ctx context.Context, id uuid.UUID, passwordHash string) error
 
 	ListAll(ctx context.Context) ([]User, error)
+	// ListByOrganization is the tenant-safe counterpart to ListAll — see
+	// Service.ListUsersByOrganization's doc comment for when to use which.
+	ListByOrganization(ctx context.Context, organizationID uuid.UUID) ([]User, error)
 	FindByIDs(ctx context.Context, ids []uuid.UUID) ([]User, error)
 	UpdateRole(ctx context.Context, id uuid.UUID, role Role) error
 	UpdateDepartment(ctx context.Context, id uuid.UUID, departmentID *uuid.UUID) error
@@ -70,6 +73,12 @@ func (r *repository) UpdatePassword(ctx context.Context, id uuid.UUID, passwordH
 func (r *repository) ListAll(ctx context.Context) ([]User, error) {
 	var users []User
 	err := r.db.WithContext(ctx).Order("name ASC").Find(&users).Error
+	return users, err
+}
+
+func (r *repository) ListByOrganization(ctx context.Context, organizationID uuid.UUID) ([]User, error) {
+	var users []User
+	err := r.db.WithContext(ctx).Where("organization_id = ?", organizationID).Order("name ASC").Find(&users).Error
 	return users, err
 }
 

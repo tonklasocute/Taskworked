@@ -49,6 +49,16 @@ func (f *fakeRepository) ListAll(_ context.Context) ([]User, error) {
 	return result, nil
 }
 
+func (f *fakeRepository) ListByOrganization(_ context.Context, organizationID uuid.UUID) ([]User, error) {
+	var result []User
+	for _, u := range f.users {
+		if u.OrganizationID != nil && *u.OrganizationID == organizationID {
+			result = append(result, *u)
+		}
+	}
+	return result, nil
+}
+
 func (f *fakeRepository) FindByIDs(_ context.Context, ids []uuid.UUID) ([]User, error) {
 	var result []User
 	for _, id := range ids {
@@ -119,10 +129,12 @@ func TestGetUsersByIDs_ReturnsOnlyRequested(t *testing.T) {
 }
 
 func TestUpdateRole_ByNonAdminForbidden(t *testing.T) {
-	target := &User{ID: uuid.New(), Name: "Target", Email: "target@example.com", Role: RoleEmployee}
-	svc := NewService(newFakeRepository(target), nil)
+	orgID := uuid.New()
+	actor := &User{ID: uuid.New(), Name: "Actor", Email: "actor@example.com", Role: RoleEmployee, OrganizationID: &orgID}
+	target := &User{ID: uuid.New(), Name: "Target", Email: "target@example.com", Role: RoleEmployee, OrganizationID: &orgID}
+	svc := NewService(newFakeRepository(actor, target), nil)
 
-	_, err := svc.UpdateRole(context.Background(), RoleEmployee, target.ID, UpdateRoleRequest{Role: RoleAdmin})
+	_, err := svc.UpdateRole(context.Background(), actor.ID, RoleEmployee, target.ID, UpdateRoleRequest{Role: RoleAdmin})
 	if err == nil {
 		t.Fatal("expected forbidden error, got nil")
 	}
@@ -132,10 +144,12 @@ func TestUpdateRole_ByNonAdminForbidden(t *testing.T) {
 }
 
 func TestUpdateRole_ByAdminSucceeds(t *testing.T) {
-	target := &User{ID: uuid.New(), Name: "Target", Email: "target@example.com", Role: RoleEmployee}
-	svc := NewService(newFakeRepository(target), nil)
+	orgID := uuid.New()
+	actor := &User{ID: uuid.New(), Name: "Actor", Email: "actor@example.com", Role: RoleAdmin, OrganizationID: &orgID}
+	target := &User{ID: uuid.New(), Name: "Target", Email: "target@example.com", Role: RoleEmployee, OrganizationID: &orgID}
+	svc := NewService(newFakeRepository(actor, target), nil)
 
-	updated, err := svc.UpdateRole(context.Background(), RoleAdmin, target.ID, UpdateRoleRequest{Role: RoleManager})
+	updated, err := svc.UpdateRole(context.Background(), actor.ID, RoleAdmin, target.ID, UpdateRoleRequest{Role: RoleManager})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -144,12 +158,34 @@ func TestUpdateRole_ByAdminSucceeds(t *testing.T) {
 	}
 }
 
+// TestUpdateRole_CrossOrganizationTargetNotFound is the unit-level
+// regression guard for the vertical-privilege-escalation gap this phase
+// closed: an org admin used to be able to change *any* user's role
+// system-wide, with no organization check at all. Full end-to-end coverage
+// lives in backend/e2e/tenant_isolation_test.go.
+func TestUpdateRole_CrossOrganizationTargetNotFound(t *testing.T) {
+	actorOrgID, targetOrgID := uuid.New(), uuid.New()
+	actor := &User{ID: uuid.New(), Name: "Actor", Email: "actor@example.com", Role: RoleAdmin, OrganizationID: &actorOrgID}
+	target := &User{ID: uuid.New(), Name: "Target", Email: "target@example.com", Role: RoleEmployee, OrganizationID: &targetOrgID}
+	svc := NewService(newFakeRepository(actor, target), nil)
+
+	_, err := svc.UpdateRole(context.Background(), actor.ID, RoleAdmin, target.ID, UpdateRoleRequest{Role: RoleManager})
+	if err == nil {
+		t.Fatal("expected an error for a target user in a different organization, got nil")
+	}
+	if status := appErrStatus(t, err); status != 404 {
+		t.Errorf("expected 404 (not found, not 403 — a cross-org user must look identical to a nonexistent one), got %d", status)
+	}
+}
+
 func TestUpdateDepartment_ByNonAdminForbidden(t *testing.T) {
-	target := &User{ID: uuid.New(), Name: "Target", Email: "target@example.com", Role: RoleEmployee}
-	svc := NewService(newFakeRepository(target), nil)
+	orgID := uuid.New()
+	actor := &User{ID: uuid.New(), Name: "Actor", Email: "actor@example.com", Role: RoleEmployee, OrganizationID: &orgID}
+	target := &User{ID: uuid.New(), Name: "Target", Email: "target@example.com", Role: RoleEmployee, OrganizationID: &orgID}
+	svc := NewService(newFakeRepository(actor, target), nil)
 
 	deptID := uuid.New().String()
-	_, err := svc.UpdateDepartment(context.Background(), RoleEmployee, target.ID, UpdateDepartmentRequest{DepartmentID: &deptID})
+	_, err := svc.UpdateDepartment(context.Background(), actor.ID, RoleEmployee, target.ID, UpdateDepartmentRequest{DepartmentID: &deptID})
 	if err == nil {
 		t.Fatal("expected forbidden error, got nil")
 	}
@@ -159,11 +195,13 @@ func TestUpdateDepartment_ByNonAdminForbidden(t *testing.T) {
 }
 
 func TestUpdateDepartment_ByAdminSucceeds(t *testing.T) {
-	target := &User{ID: uuid.New(), Name: "Target", Email: "target@example.com", Role: RoleEmployee}
-	svc := NewService(newFakeRepository(target), nil)
+	orgID := uuid.New()
+	actor := &User{ID: uuid.New(), Name: "Actor", Email: "actor@example.com", Role: RoleSuperAdmin, OrganizationID: &orgID}
+	target := &User{ID: uuid.New(), Name: "Target", Email: "target@example.com", Role: RoleEmployee, OrganizationID: &orgID}
+	svc := NewService(newFakeRepository(actor, target), nil)
 
 	deptID := uuid.New().String()
-	updated, err := svc.UpdateDepartment(context.Background(), RoleSuperAdmin, target.ID, UpdateDepartmentRequest{DepartmentID: &deptID})
+	updated, err := svc.UpdateDepartment(context.Background(), actor.ID, RoleSuperAdmin, target.ID, UpdateDepartmentRequest{DepartmentID: &deptID})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

@@ -202,7 +202,17 @@ func New(cfg *config.Config, db *gorm.DB, redisClient *redis.Client) *App {
 	// the whole process and drops every other in-flight request, not just
 	// the one that panicked.
 	app.Use(recover.New())
-	app.Use(logger.New())
+	// user_id/org_id are populated from the JWT claims RequireAuth sets in
+	// c.Locals — empty for routes that run before/without auth (health
+	// check, login itself). Never includes the token or any other secret.
+	// This is the full extent of "structured" logging in this codebase
+	// today (see the P1.2 tenant isolation audit's observability notes for
+	// what's deliberately not done here — real structured/JSON logging
+	// with request IDs is a separate, larger change, tracked but out of
+	// scope for this phase).
+	app.Use(logger.New(logger.Config{
+		Format: "${time} | ${status} | ${latency} | ${ip} | ${method} | ${path} | user_id=${locals:userID} org_id=${locals:organizationID}\n",
+	}))
 	app.Use(cors.New())
 
 	// Global rate limit protects every route from gross abuse; the auth

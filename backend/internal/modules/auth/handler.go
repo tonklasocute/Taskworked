@@ -61,7 +61,11 @@ func (h *Handler) updateRole(c *fiber.Ctx) error {
 		return response.Err(c, fiber.StatusBadRequest, err.Error())
 	}
 
-	result, err := h.service.UpdateRole(c.Context(), Role(httpctx.ActorRole(c)), id, req)
+	actorID, err := httpctx.ActorID(c)
+	if err != nil {
+		return httpctx.WriteErr(c, err)
+	}
+	result, err := h.service.UpdateRole(c.Context(), actorID, Role(httpctx.ActorRole(c)), id, req)
 	if err != nil {
 		return httpctx.WriteErr(c, err)
 	}
@@ -82,7 +86,11 @@ func (h *Handler) updateDepartment(c *fiber.Ctx) error {
 		return response.Err(c, fiber.StatusBadRequest, err.Error())
 	}
 
-	result, err := h.service.UpdateDepartment(c.Context(), Role(httpctx.ActorRole(c)), id, req)
+	actorID, err := httpctx.ActorID(c)
+	if err != nil {
+		return httpctx.WriteErr(c, err)
+	}
+	result, err := h.service.UpdateDepartment(c.Context(), actorID, Role(httpctx.ActorRole(c)), id, req)
 	if err != nil {
 		return httpctx.WriteErr(c, err)
 	}

@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"github.com/google/uuid"
+	"github.com/khomkrittk/taskworked/backend/internal/modules/organization"
 	apperrors "github.com/khomkrittk/taskworked/backend/internal/pkg/errors"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -17,13 +18,39 @@ type Service interface {
 
 	// ListUsers is the org-wide directory — visible to any authenticated
 	// user, same as seeing colleagues' names in a Slack workspace.
+	//
+	// Deliberately NOT organization-scoped: callers that need a tenant-safe
+	// directory (e.g. team.Service.GetDirectory, the /team endpoint) must
+	// use ListUsersByOrganization instead. This one stays because it's also
+	// used by the notification digest cron, where returning cross-org users
+	// is not a leak — each digest only ever surfaces that specific user's
+	// own data (see P1.2 audit notes), never another user's.
 	ListUsers(ctx context.Context) ([]UserResponse, error)
+	// ListUsersByOrganization is the tenant-safe directory query — use this,
+	// not ListUsers, for anything that displays the result to a user (as
+	// opposed to iterating internally per-user like the digest cron does).
+	ListUsersByOrganization(ctx context.Context, organizationID uuid.UUID) ([]UserResponse, error)
 	// GetUsersByIDs lets other modules (project, for enriching a member
 	// list with names) resolve a batch of IDs without depending on the
 	// full auth.Repository.
 	GetUsersByIDs(ctx context.Context, ids []uuid.UUID) ([]UserResponse, error)
-	UpdateRole(ctx context.Context, actorRole Role, targetUserID uuid.UUID, req UpdateRoleRequest) (*UserResponse, error)
-	UpdateDepartment(ctx context.Context, actorRole Role, targetUserID uuid.UUID, req UpdateDepartmentRequest) (*UserResponse, error)
+	// GetOrganizationID is the trusted, server-side source of truth for
+	// "what organization does this already-authenticated user belong to"
+	// — this is what every tenant-isolation check in the codebase resolves
+	// the actor's org from, rather than trusting any client-supplied value.
+	// See docs/superpowers/specs/2026-08-10-p1-organization-architecture-audit.md.
+	GetOrganizationID(ctx context.Context, userID uuid.UUID) (uuid.UUID, error)
+	// UpdateRole and UpdateDepartment take actorID (not just actorRole) so
+	// they can confirm the target user belongs to the actor's own
+	// organization before mutating anything — an org admin's reach stops
+	// at their own organization's boundary, same as every other
+	// authorization check in the codebase (see the P1.2 tenant isolation
+	// audit). Without this, any admin could change any user's role or
+	// department system-wide regardless of organization, which is exactly
+	// the cross-tenant vertical-privilege-escalation path P1.2 exists to
+	// close.
+	UpdateRole(ctx context.Context, actorID uuid.UUID, actorRole Role, targetUserID uuid.UUID, req UpdateRoleRequest) (*UserResponse, error)
+	UpdateDepartment(ctx context.Context, actorID uuid.UUID, actorRole Role, targetUserID uuid.UUID, req UpdateDepartmentRequest) (*UserResponse, error)
 }
 
 type service struct {
@@ -46,11 +73,19 @@ func (s *service) Register(ctx context.Context, req RegisterRequest) (*AuthRespo
 	}
 
 	count, countErr := s.repo.Count(ctx)
+	// TODO(P1.5+): every registration is assigned to the single default
+	// organization created by migration 0002 — there's no invitation flow
+	// or organization-creation API yet for a registrant to join/create a
+	// specific organization. This matches today's actual single-company
+	// deployment reality and keeps existing registration working; revisit
+	// once invitations (or self-serve org creation) exist.
+	defaultOrgID := organization.DefaultOrganizationID
 	user := &User{
-		Name:         req.Name,
-		Email:        req.Email,
-		PasswordHash: string(hash),
-		Role:         bootstrapRole(count, countErr),
+		Name:           req.Name,
+		Email:          req.Email,
+		PasswordHash:   string(hash),
+		Role:           bootstrapRole(count, countErr),
+		OrganizationID: &defaultOrgID,
 	}
 	if err := s.repo.Create(ctx, user); err != nil {
 		return nil, apperrors.Internal("failed to create user")
@@ -129,6 +164,37 @@ func (s *service) ListUsers(ctx context.Context) ([]UserResponse, error) {
 	return responses, nil
 }
 
+func (s *service) ListUsersByOrganization(ctx context.Context, organizationID uuid.UUID) ([]UserResponse, error) {
+	users, err := s.repo.ListByOrganization(ctx, organizationID)
+	if err != nil {
+		return nil, apperrors.Internal("failed to list users")
+	}
+	responses := make([]UserResponse, len(users))
+	for i := range users {
+		responses[i] = toUserResponse(&users[i])
+	}
+	return responses, nil
+}
+
+// GetOrganizationID is the trusted lookup every tenant-isolation check in
+// the codebase uses to resolve "what org does this authenticated user
+// belong to" — see the Service interface doc comment. A user with no
+// organization assigned (shouldn't happen after P1.1's backfill + this
+// package's own registration/issueTokens fixes, but the column is still
+// nullable at the DB level) fails closed rather than silently comparing
+// against a zero UUID, which could otherwise let two such users match each
+// other by coincidence.
+func (s *service) GetOrganizationID(ctx context.Context, userID uuid.UUID) (uuid.UUID, error) {
+	user, err := s.repo.FindByID(ctx, userID)
+	if err != nil {
+		return uuid.Nil, apperrors.Internal("failed to look up user")
+	}
+	if user.OrganizationID == nil {
+		return uuid.Nil, apperrors.Internal("user has no organization assigned")
+	}
+	return *user.OrganizationID, nil
+}
+
 func (s *service) GetUsersByIDs(ctx context.Context, ids []uuid.UUID) ([]UserResponse, error) {
 	users, err := s.repo.FindByIDs(ctx, ids)
 	if err != nil {
@@ -141,9 +207,12 @@ func (s *service) GetUsersByIDs(ctx context.Context, ids []uuid.UUID) ([]UserRes
 	return responses, nil
 }
 
-func (s *service) UpdateRole(ctx context.Context, actorRole Role, targetUserID uuid.UUID, req UpdateRoleRequest) (*UserResponse, error) {
+func (s *service) UpdateRole(ctx context.Context, actorID uuid.UUID, actorRole Role, targetUserID uuid.UUID, req UpdateRoleRequest) (*UserResponse, error) {
 	if !IsOrgAdmin(actorRole) {
 		return nil, apperrors.Forbidden("only an admin can change roles")
+	}
+	if err := s.requireSameOrganization(ctx, actorID, targetUserID); err != nil {
+		return nil, err
 	}
 	if err := s.repo.UpdateRole(ctx, targetUserID, req.Role); err != nil {
 		return nil, apperrors.Internal("failed to update role")
@@ -156,9 +225,12 @@ func (s *service) UpdateRole(ctx context.Context, actorRole Role, targetUserID u
 	return &resp, nil
 }
 
-func (s *service) UpdateDepartment(ctx context.Context, actorRole Role, targetUserID uuid.UUID, req UpdateDepartmentRequest) (*UserResponse, error) {
+func (s *service) UpdateDepartment(ctx context.Context, actorID uuid.UUID, actorRole Role, targetUserID uuid.UUID, req UpdateDepartmentRequest) (*UserResponse, error) {
 	if !IsOrgAdmin(actorRole) {
 		return nil, apperrors.Forbidden("only an admin can change departments")
+	}
+	if err := s.requireSameOrganization(ctx, actorID, targetUserID); err != nil {
+		return nil, err
 	}
 	var departmentID *uuid.UUID
 	if req.DepartmentID != nil && *req.DepartmentID != "" {
@@ -179,7 +251,37 @@ func (s *service) UpdateDepartment(ctx context.Context, actorRole Role, targetUs
 	return &resp, nil
 }
 
+// requireSameOrganization confirms targetUserID belongs to the same
+// organization as actorID, returning NotFound (not Forbidden) on a
+// mismatch — identical to a nonexistent target user, so an admin can't
+// use this endpoint to probe whether a given user ID exists in another
+// organization (see the P1.2 tenant isolation audit §25).
+func (s *service) requireSameOrganization(ctx context.Context, actorID, targetUserID uuid.UUID) error {
+	actorOrgID, err := s.GetOrganizationID(ctx, actorID)
+	if err != nil {
+		return err
+	}
+	targetOrgID, err := s.GetOrganizationID(ctx, targetUserID)
+	if err != nil {
+		return apperrors.NotFound("user not found")
+	}
+	if actorOrgID != targetOrgID {
+		return apperrors.NotFound("user not found")
+	}
+	return nil
+}
+
 func (s *service) issueTokens(ctx context.Context, user *User) (*AuthResponse, error) {
+	// Fail closed rather than issue a token with an empty org claim: every
+	// tenant-isolation check in the codebase treats "no organization" as
+	// "matches nothing", so a claim-less token would just see empty lists
+	// everywhere rather than a clear error — worse for debugging a real
+	// data problem (a user that somehow has no organization) than refusing
+	// to log them in at all.
+	if user.OrganizationID == nil {
+		return nil, apperrors.Internal("user has no organization assigned")
+	}
+
 	access, err := s.tokens.IssueAccessToken(user)
 	if err != nil {
 		return nil, apperrors.Internal("failed to issue access token")

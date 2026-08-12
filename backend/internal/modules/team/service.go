@@ -12,7 +12,8 @@ import (
 // a local interface (rather than importing auth.Service's full surface)
 // so tests can fake just this.
 type AuthService interface {
-	ListUsers(ctx context.Context) ([]auth.UserResponse, error)
+	ListUsersByOrganization(ctx context.Context, organizationID uuid.UUID) ([]auth.UserResponse, error)
+	GetOrganizationID(ctx context.Context, userID uuid.UUID) (uuid.UUID, error)
 }
 
 // WorkloadService is the slice of task.Service the directory needs.
@@ -27,9 +28,9 @@ type PresenceChecker interface {
 }
 
 type Service interface {
-	CreateDepartment(ctx context.Context, actorRole auth.Role, req CreateDepartmentRequest) (*DepartmentResponse, error)
-	DeleteDepartment(ctx context.Context, actorRole auth.Role, id uuid.UUID) error
-	GetDirectory(ctx context.Context) (*DirectoryResponse, error)
+	CreateDepartment(ctx context.Context, actorID uuid.UUID, actorRole auth.Role, req CreateDepartmentRequest) (*DepartmentResponse, error)
+	DeleteDepartment(ctx context.Context, actorID uuid.UUID, actorRole auth.Role, id uuid.UUID) error
+	GetDirectory(ctx context.Context, actorID uuid.UUID) (*DirectoryResponse, error)
 }
 
 type service struct {
@@ -43,11 +44,15 @@ func NewService(repo Repository, authSvc AuthService, taskSvc WorkloadService, p
 	return &service{repo: repo, authSvc: authSvc, taskSvc: taskSvc, presence: presence}
 }
 
-func (s *service) CreateDepartment(ctx context.Context, actorRole auth.Role, req CreateDepartmentRequest) (*DepartmentResponse, error) {
+func (s *service) CreateDepartment(ctx context.Context, actorID uuid.UUID, actorRole auth.Role, req CreateDepartmentRequest) (*DepartmentResponse, error) {
 	if !auth.IsOrgAdmin(actorRole) {
 		return nil, apperrors.Forbidden("only an admin can manage departments")
 	}
-	d := &Department{Name: req.Name}
+	actorOrgID, err := s.authSvc.GetOrganizationID(ctx, actorID)
+	if err != nil {
+		return nil, err
+	}
+	d := &Department{Name: req.Name, OrganizationID: &actorOrgID}
 	if err := s.repo.CreateDepartment(ctx, d); err != nil {
 		return nil, apperrors.Conflict("a department with this name already exists")
 	}
@@ -55,9 +60,26 @@ func (s *service) CreateDepartment(ctx context.Context, actorRole auth.Role, req
 	return &resp, nil
 }
 
-func (s *service) DeleteDepartment(ctx context.Context, actorRole auth.Role, id uuid.UUID) error {
+func (s *service) DeleteDepartment(ctx context.Context, actorID uuid.UUID, actorRole auth.Role, id uuid.UUID) error {
 	if !auth.IsOrgAdmin(actorRole) {
 		return apperrors.Forbidden("only an admin can manage departments")
+	}
+	actorOrgID, err := s.authSvc.GetOrganizationID(ctx, actorID)
+	if err != nil {
+		return err
+	}
+	// Confirm the department belongs to the actor's own organization
+	// before deleting — an org admin's reach stops at their own
+	// organization's boundary, same as everywhere else in P1.2. A
+	// wrong-organization ID and a genuinely nonexistent one both just
+	// look "not found" here, not "forbidden", for the same no-leak reason
+	// as project.Service.CheckMembership.
+	d, err := s.repo.FindDepartment(ctx, id)
+	if err != nil {
+		return apperrors.NotFound("department not found")
+	}
+	if d.OrganizationID == nil || *d.OrganizationID != actorOrgID {
+		return apperrors.NotFound("department not found")
 	}
 	if err := s.repo.DeleteDepartment(ctx, id); err != nil {
 		return apperrors.Internal("failed to delete department")
@@ -65,12 +87,16 @@ func (s *service) DeleteDepartment(ctx context.Context, actorRole auth.Role, id 
 	return nil
 }
 
-func (s *service) GetDirectory(ctx context.Context) (*DirectoryResponse, error) {
-	users, err := s.authSvc.ListUsers(ctx)
+func (s *service) GetDirectory(ctx context.Context, actorID uuid.UUID) (*DirectoryResponse, error) {
+	actorOrgID, err := s.authSvc.GetOrganizationID(ctx, actorID)
 	if err != nil {
 		return nil, err
 	}
-	departments, err := s.repo.ListDepartments(ctx)
+	users, err := s.authSvc.ListUsersByOrganization(ctx, actorOrgID)
+	if err != nil {
+		return nil, err
+	}
+	departments, err := s.repo.ListDepartments(ctx, actorOrgID)
 	if err != nil {
 		return nil, apperrors.Internal("failed to list departments")
 	}

@@ -24,6 +24,14 @@ func RequireAuth(tokens *auth.TokenService) fiber.Handler {
 
 		c.Locals("userID", claims.UserID)
 		c.Locals("role", string(claims.Role))
+		// organizationID is the stateless half of tenant context — see
+		// auth.Claims.OrganizationID's doc comment. Handlers/services that
+		// need the *enforced* org value still re-derive it server-side via
+		// auth.Service.GetOrganizationID rather than trusting this claim
+		// alone; this Local exists for cheap read access (e.g. the
+		// WebSocket handshake, structured logging) where a fresh DB lookup
+		// isn't already happening for another reason.
+		c.Locals("organizationID", claims.OrganizationID)
 		return c.Next()
 	}
 }

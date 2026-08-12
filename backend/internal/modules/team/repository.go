@@ -12,7 +12,7 @@ var ErrNotFound = errors.New("department not found")
 
 type Repository interface {
 	CreateDepartment(ctx context.Context, d *Department) error
-	ListDepartments(ctx context.Context) ([]Department, error)
+	ListDepartments(ctx context.Context, organizationID uuid.UUID) ([]Department, error)
 	FindDepartment(ctx context.Context, id uuid.UUID) (*Department, error)
 	DeleteDepartment(ctx context.Context, id uuid.UUID) error
 }
@@ -29,9 +29,9 @@ func (r *repository) CreateDepartment(ctx context.Context, d *Department) error 
 	return r.db.WithContext(ctx).Create(d).Error
 }
 
-func (r *repository) ListDepartments(ctx context.Context) ([]Department, error) {
+func (r *repository) ListDepartments(ctx context.Context, organizationID uuid.UUID) ([]Department, error) {
 	var departments []Department
-	err := r.db.WithContext(ctx).Order("name ASC").Find(&departments).Error
+	err := r.db.WithContext(ctx).Where("organization_id = ?", organizationID).Order("name ASC").Find(&departments).Error
 	return departments, err
 }
 

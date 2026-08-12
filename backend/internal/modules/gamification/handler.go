@@ -33,7 +33,11 @@ func (h *Handler) profile(c *fiber.Ctx) error {
 }
 
 func (h *Handler) leaderboard(c *fiber.Ctx) error {
-	result, err := h.service.GetLeaderboard(c.Context())
+	actorID, err := httpctx.ActorID(c)
+	if err != nil {
+		return httpctx.WriteErr(c, err)
+	}
+	result, err := h.service.GetLeaderboard(c.Context(), actorID)
 	if err != nil {
 		return httpctx.WriteErr(c, err)
 	}

@@ -12,6 +12,14 @@ import (
 type Claims struct {
 	UserID string `json:"uid"`
 	Role   Role   `json:"role"`
+	// OrganizationID is resolved server-side from the user's own record at
+	// issuance (see Service.issueTokens) — never client-supplied. It's the
+	// stateless half of tenant context (cheap to read off the token, e.g.
+	// for the WebSocket handshake); the actual enforcement backbone is a
+	// fresh server-side lookup in project.Service, not this claim, so a
+	// stale token can't grant access to an org a user has since left. See
+	// docs/superpowers/specs/2026-08-10-p1-organization-architecture-audit.md.
+	OrganizationID string `json:"org_id"`
 	jwt.RegisteredClaims
 }
 
@@ -36,9 +44,14 @@ func NewTokenService(accessSecret, refreshSecret string, accessTTL, refreshTTL t
 }
 
 func (s *TokenService) IssueAccessToken(u *User) (string, error) {
+	orgID := ""
+	if u.OrganizationID != nil {
+		orgID = u.OrganizationID.String()
+	}
 	claims := Claims{
-		UserID: u.ID.String(),
-		Role:   u.Role,
+		UserID:         u.ID.String(),
+		Role:           u.Role,
+		OrganizationID: orgID,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(s.accessTTL)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),

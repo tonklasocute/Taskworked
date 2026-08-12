@@ -46,14 +46,20 @@ func (s *service) Create(ctx context.Context, actorID uuid.UUID, req CreateReque
 		return nil, apperrors.BadRequest("invalid due_date, expected YYYY-MM-DD")
 	}
 
+	actorOrgID, err := s.authSvc.GetOrganizationID(ctx, actorID)
+	if err != nil {
+		return nil, err
+	}
+
 	p := &Project{
-		Name:        req.Name,
-		Description: req.Description,
-		OwnerID:     actorID,
-		Status:      StatusPlanning,
-		DueDate:     dueDate,
-		Color:       req.Color,
-		Icon:        req.Icon,
+		Name:           req.Name,
+		Description:    req.Description,
+		OwnerID:        actorID,
+		Status:         StatusPlanning,
+		DueDate:        dueDate,
+		Color:          req.Color,
+		Icon:           req.Icon,
+		OrganizationID: &actorOrgID,
 	}
 	if err := s.repo.Create(ctx, p); err != nil {
 		return nil, apperrors.Internal("failed to create project")
@@ -68,7 +74,11 @@ func (s *service) Create(ctx context.Context, actorID uuid.UUID, req CreateReque
 }
 
 func (s *service) Get(ctx context.Context, actorID uuid.UUID, actorRole auth.Role, id uuid.UUID) (*Response, error) {
-	p, err := s.repo.FindByID(ctx, id)
+	actorOrgID, err := s.authSvc.GetOrganizationID(ctx, actorID)
+	if err != nil {
+		return nil, err
+	}
+	p, err := s.repo.FindByID(ctx, id, actorOrgID)
 	if err != nil {
 		return nil, notFoundOrInternal(err)
 	}
@@ -91,7 +101,11 @@ func (s *service) List(ctx context.Context, actorID uuid.UUID, filter ListFilter
 		filter.PageSize = 20
 	}
 
-	projects, total, err := s.repo.ListForMember(ctx, actorID, filter)
+	actorOrgID, err := s.authSvc.GetOrganizationID(ctx, actorID)
+	if err != nil {
+		return nil, err
+	}
+	projects, total, err := s.repo.ListForMember(ctx, actorID, actorOrgID, filter)
 	if err != nil {
 		return nil, apperrors.Internal("failed to list projects")
 	}
@@ -105,14 +119,9 @@ func (s *service) List(ctx context.Context, actorID uuid.UUID, filter ListFilter
 }
 
 func (s *service) Update(ctx context.Context, actorID uuid.UUID, actorRole auth.Role, id uuid.UUID, req UpdateRequest) (*Response, error) {
-	p, err := s.repo.FindByID(ctx, id)
+	p, allowed, err := s.canManage(ctx, actorID, actorRole, id)
 	if err != nil {
-		return nil, notFoundOrInternal(err)
-	}
-
-	allowed, err := s.canManage(ctx, actorID, actorRole, id)
-	if err != nil {
-		return nil, apperrors.Internal("failed to check permissions")
+		return nil, err
 	}
 	if !allowed {
 		return nil, apperrors.Forbidden("only the project owner or an admin can update this project")
@@ -150,13 +159,9 @@ func (s *service) Update(ctx context.Context, actorID uuid.UUID, actorRole auth.
 }
 
 func (s *service) Delete(ctx context.Context, actorID uuid.UUID, actorRole auth.Role, id uuid.UUID) error {
-	if _, err := s.repo.FindByID(ctx, id); err != nil {
-		return notFoundOrInternal(err)
-	}
-
-	allowed, err := s.canManage(ctx, actorID, actorRole, id)
+	_, allowed, err := s.canManage(ctx, actorID, actorRole, id)
 	if err != nil {
-		return apperrors.Internal("failed to check permissions")
+		return err
 	}
 	if !allowed {
 		return apperrors.Forbidden("only the project owner or an admin can delete this project")
@@ -169,9 +174,9 @@ func (s *service) Delete(ctx context.Context, actorID uuid.UUID, actorRole auth.
 }
 
 func (s *service) AddMember(ctx context.Context, actorID uuid.UUID, actorRole auth.Role, id uuid.UUID, req AddMemberRequest) error {
-	allowed, err := s.canManage(ctx, actorID, actorRole, id)
+	_, allowed, err := s.canManage(ctx, actorID, actorRole, id)
 	if err != nil {
-		return apperrors.Internal("failed to check permissions")
+		return err
 	}
 	if !allowed {
 		return apperrors.Forbidden("only the project owner or an admin can add members")
@@ -182,6 +187,25 @@ func (s *service) AddMember(ctx context.Context, actorID uuid.UUID, actorRole au
 		return apperrors.BadRequest("invalid user_id")
 	}
 
+	// The target user must belong to the same organization as the project
+	// — otherwise a membership row would silently associate a user with a
+	// project outside their own organization, exactly the kind of
+	// cross-tenant relationship P1.2 exists to prevent (see the P1.2
+	// tenant isolation audit §6). Reuses the same generic error message as
+	// the ordinary conflict case below so a caller can't distinguish "that
+	// user is in another org" from "already a member" (§25 no-leak).
+	actorOrgID, err := s.authSvc.GetOrganizationID(ctx, actorID)
+	if err != nil {
+		return err
+	}
+	targetOrgID, err := s.authSvc.GetOrganizationID(ctx, userID)
+	if err != nil {
+		return apperrors.Conflict("user is already a member or does not exist")
+	}
+	if targetOrgID != actorOrgID {
+		return apperrors.Conflict("user is already a member or does not exist")
+	}
+
 	if err := s.repo.AddMember(ctx, &Member{ProjectID: id, UserID: userID, Role: MemberRoleMember}); err != nil {
 		return apperrors.Conflict("user is already a member or does not exist")
 	}
@@ -189,18 +213,14 @@ func (s *service) AddMember(ctx context.Context, actorID uuid.UUID, actorRole au
 }
 
 func (s *service) RemoveMember(ctx context.Context, actorID uuid.UUID, actorRole auth.Role, id, targetUserID uuid.UUID) error {
-	allowed, err := s.canManage(ctx, actorID, actorRole, id)
+	p, allowed, err := s.canManage(ctx, actorID, actorRole, id)
 	if err != nil {
-		return apperrors.Internal("failed to check permissions")
+		return err
 	}
 	if !allowed {
 		return apperrors.Forbidden("only the project owner or an admin can remove members")
 	}
 
-	p, err := s.repo.FindByID(ctx, id)
-	if err != nil {
-		return notFoundOrInternal(err)
-	}
 	if p.OwnerID == targetUserID {
 		return apperrors.BadRequest("cannot remove the project owner")
 	}
@@ -212,10 +232,12 @@ func (s *service) RemoveMember(ctx context.Context, actorID uuid.UUID, actorRole
 }
 
 func (s *service) ListMembers(ctx context.Context, actorID uuid.UUID, actorRole auth.Role, id uuid.UUID) ([]MemberDetail, error) {
-	if !auth.IsOrgAdmin(actorRole) {
-		if _, err := s.repo.FindMember(ctx, id, actorID); err != nil {
-			return nil, apperrors.Forbidden("not a member of this project")
-		}
+	isMember, _, err := s.CheckMembership(ctx, actorID, actorRole, id)
+	if err != nil {
+		return nil, err
+	}
+	if !isMember {
+		return nil, apperrors.Forbidden("not a member of this project")
 	}
 
 	members, err := s.repo.ListMembers(ctx, id)
@@ -244,23 +266,63 @@ func (s *service) ListMembers(ctx context.Context, actorID uuid.UUID, actorRole 
 	return details, nil
 }
 
-// canManage reports whether actor is an org admin/super admin, or the
-// project's own owner-role member.
-func (s *service) canManage(ctx context.Context, actorID uuid.UUID, actorRole auth.Role, projectID uuid.UUID) (bool, error) {
+// canManage resolves the project — organization-scoped, see
+// Repository.FindByID's doc comment — and reports whether actor may
+// manage it (an org admin/super admin *of that same organization*, or the
+// project's own owner-role member). Returns the project so callers that
+// already need it (Update, RemoveMember) don't have to fetch it again.
+//
+// This is the tenant-isolation choke point for the whole project module:
+// task/actionplan/report/ai/realtime never touch project.Repository
+// directly, they all authorize project-scoped actions through
+// CheckMembership below, which shares this same organization check. Fixing
+// it here is what makes every one of those modules (and the WebSocket
+// project-subscribe path) tenant-safe without needing its own copy of this
+// logic — see docs/superpowers/specs/2026-08-10-p1-organization-architecture-audit.md.
+func (s *service) canManage(ctx context.Context, actorID uuid.UUID, actorRole auth.Role, projectID uuid.UUID) (*Project, bool, error) {
+	actorOrgID, err := s.authSvc.GetOrganizationID(ctx, actorID)
+	if err != nil {
+		return nil, false, err
+	}
+	p, err := s.repo.FindByID(ctx, projectID, actorOrgID)
+	if err != nil {
+		return nil, false, notFoundOrInternal(err)
+	}
+
 	if auth.IsOrgAdmin(actorRole) {
-		return true, nil
+		return p, true, nil
 	}
 	member, err := s.repo.FindMember(ctx, projectID, actorID)
 	if errors.Is(err, ErrNotFound) {
-		return false, nil
+		return p, false, nil
 	}
 	if err != nil {
-		return false, err
+		return nil, false, apperrors.Internal("failed to check project membership")
 	}
-	return member.Role == MemberRoleOwner, nil
+	return p, member.Role == MemberRoleOwner, nil
 }
 
+// CheckMembership is the same organization-scoped resolution as canManage,
+// exposed to other modules (see the doc comment above) that only need to
+// know "is this actor allowed to touch this project at all" rather than
+// the project data itself. isMember is false — not an error — for a
+// project that exists in a different organization than the actor,
+// identical to a project that doesn't exist at all: neither a client nor
+// a caller further down the stack can distinguish the two, which is what
+// keeps a wrong-organization ID from leaking "yes, that project exists,
+// just not for you" (see the P1.2 tenant isolation audit §25).
 func (s *service) CheckMembership(ctx context.Context, actorID uuid.UUID, actorRole auth.Role, projectID uuid.UUID) (bool, bool, error) {
+	actorOrgID, err := s.authSvc.GetOrganizationID(ctx, actorID)
+	if err != nil {
+		return false, false, err
+	}
+	if _, err := s.repo.FindByID(ctx, projectID, actorOrgID); err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return false, false, nil
+		}
+		return false, false, err
+	}
+
 	if auth.IsOrgAdmin(actorRole) {
 		return true, true, nil
 	}

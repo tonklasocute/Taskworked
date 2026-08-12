@@ -11,12 +11,21 @@ import (
 
 // --- fakes ---------------------------------------------------------------
 
+// testOrgID is the organization every test actor belongs to by default —
+// these are permission/composition tests, not tenant-isolation tests (see
+// backend/e2e/tenant_isolation_test.go for that).
+var testOrgID = uuid.New()
+
 type fakeAuthService struct {
 	users []auth.UserResponse
 }
 
-func (f *fakeAuthService) ListUsers(context.Context) ([]auth.UserResponse, error) {
+func (f *fakeAuthService) ListUsersByOrganization(context.Context, uuid.UUID) ([]auth.UserResponse, error) {
 	return f.users, nil
+}
+
+func (f *fakeAuthService) GetOrganizationID(context.Context, uuid.UUID) (uuid.UUID, error) {
+	return testOrgID, nil
 }
 
 type fakeWorkloadService struct {
@@ -54,10 +63,12 @@ func (f *fakeRepository) CreateDepartment(_ context.Context, d *Department) erro
 	return nil
 }
 
-func (f *fakeRepository) ListDepartments(_ context.Context) ([]Department, error) {
+func (f *fakeRepository) ListDepartments(_ context.Context, organizationID uuid.UUID) ([]Department, error) {
 	var result []Department
 	for _, d := range f.departments {
-		result = append(result, *d)
+		if d.OrganizationID != nil && *d.OrganizationID == organizationID {
+			result = append(result, *d)
+		}
 	}
 	return result, nil
 }
@@ -89,7 +100,7 @@ func appErrStatus(t *testing.T, err error) int {
 func TestCreateDepartment_ByNonAdminForbidden(t *testing.T) {
 	svc := NewService(newFakeRepository(), &fakeAuthService{}, &fakeWorkloadService{}, &fakePresenceChecker{})
 
-	_, err := svc.CreateDepartment(context.Background(), auth.RoleEmployee, CreateDepartmentRequest{Name: "Engineering"})
+	_, err := svc.CreateDepartment(context.Background(), uuid.New(), auth.RoleEmployee, CreateDepartmentRequest{Name: "Engineering"})
 	if err == nil {
 		t.Fatal("expected forbidden error, got nil")
 	}
@@ -101,7 +112,7 @@ func TestCreateDepartment_ByNonAdminForbidden(t *testing.T) {
 func TestCreateDepartment_ByAdminSucceeds(t *testing.T) {
 	svc := NewService(newFakeRepository(), &fakeAuthService{}, &fakeWorkloadService{}, &fakePresenceChecker{})
 
-	resp, err := svc.CreateDepartment(context.Background(), auth.RoleAdmin, CreateDepartmentRequest{Name: "Engineering"})
+	resp, err := svc.CreateDepartment(context.Background(), uuid.New(), auth.RoleAdmin, CreateDepartmentRequest{Name: "Engineering"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -112,7 +123,7 @@ func TestCreateDepartment_ByAdminSucceeds(t *testing.T) {
 
 func TestGetDirectory_ComposesUserDepartmentOnlineAndWorkload(t *testing.T) {
 	repo := newFakeRepository()
-	dept, _ := (&service{repo: repo}).CreateDepartment(context.Background(), auth.RoleAdmin, CreateDepartmentRequest{Name: "Engineering"})
+	dept, _ := (&service{repo: repo, authSvc: &fakeAuthService{}}).CreateDepartment(context.Background(), uuid.New(), auth.RoleAdmin, CreateDepartmentRequest{Name: "Engineering"})
 
 	alice := auth.UserResponse{ID: uuid.New().String(), Name: "Alice", Email: "alice@example.com", Role: auth.RoleEmployee, DepartmentID: &dept.ID}
 	bob := auth.UserResponse{ID: uuid.New().String(), Name: "Bob", Email: "bob@example.com", Role: auth.RoleManager}
@@ -123,7 +134,7 @@ func TestGetDirectory_ComposesUserDepartmentOnlineAndWorkload(t *testing.T) {
 
 	svc := NewService(repo, authSvc, taskSvc, presence)
 
-	dir, err := svc.GetDirectory(context.Background())
+	dir, err := svc.GetDirectory(context.Background(), uuid.New())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -159,7 +170,7 @@ func TestGetDirectory_ComposesUserDepartmentOnlineAndWorkload(t *testing.T) {
 func TestDeleteDepartment_ByNonAdminForbidden(t *testing.T) {
 	svc := NewService(newFakeRepository(), &fakeAuthService{}, &fakeWorkloadService{}, &fakePresenceChecker{})
 
-	err := svc.DeleteDepartment(context.Background(), auth.RoleEmployee, uuid.New())
+	err := svc.DeleteDepartment(context.Background(), uuid.New(), auth.RoleEmployee, uuid.New())
 	if err == nil {
 		t.Fatal("expected forbidden error, got nil")
 	}

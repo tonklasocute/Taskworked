@@ -12,10 +12,18 @@ var ErrNotFound = errors.New("project not found")
 
 type Repository interface {
 	Create(ctx context.Context, p *Project) error
-	FindByID(ctx context.Context, id uuid.UUID) (*Project, error)
-	// ListForMember returns projects the given user belongs to, optionally
-	// filtered by status/name search, paginated.
-	ListForMember(ctx context.Context, userID uuid.UUID, filter ListFilter) ([]Project, int64, error)
+	// FindByID is organization-scoped at the SQL level (not just checked
+	// afterward in Go) so a cross-organization ID never returns a row in
+	// the first place — a wrong-org fetch and a genuinely nonexistent ID
+	// produce the identical ErrNotFound, which is what keeps every caller
+	// from having to remember a separate org check and avoids leaking
+	// "this exists in another organization" (see P1.2 tenant isolation
+	// audit, §25).
+	FindByID(ctx context.Context, id, organizationID uuid.UUID) (*Project, error)
+	// ListForMember returns projects the given user belongs to within the
+	// given organization, optionally filtered by status/name search,
+	// paginated.
+	ListForMember(ctx context.Context, userID, organizationID uuid.UUID, filter ListFilter) ([]Project, int64, error)
 	Update(ctx context.Context, p *Project) error
 	Delete(ctx context.Context, id uuid.UUID) error
 
@@ -37,9 +45,9 @@ func (r *repository) Create(ctx context.Context, p *Project) error {
 	return r.db.WithContext(ctx).Create(p).Error
 }
 
-func (r *repository) FindByID(ctx context.Context, id uuid.UUID) (*Project, error) {
+func (r *repository) FindByID(ctx context.Context, id, organizationID uuid.UUID) (*Project, error) {
 	var p Project
-	err := r.db.WithContext(ctx).First(&p, "id = ?", id).Error
+	err := r.db.WithContext(ctx).First(&p, "id = ? AND organization_id = ?", id, organizationID).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, ErrNotFound
 	}
@@ -49,10 +57,10 @@ func (r *repository) FindByID(ctx context.Context, id uuid.UUID) (*Project, erro
 	return &p, nil
 }
 
-func (r *repository) ListForMember(ctx context.Context, userID uuid.UUID, filter ListFilter) ([]Project, int64, error) {
+func (r *repository) ListForMember(ctx context.Context, userID, organizationID uuid.UUID, filter ListFilter) ([]Project, int64, error) {
 	query := r.db.WithContext(ctx).Model(&Project{}).
 		Joins("JOIN members ON members.project_id = projects.id").
-		Where("members.user_id = ?", userID)
+		Where("members.user_id = ? AND projects.organization_id = ?", userID, organizationID)
 
 	if filter.Status != "" {
 		query = query.Where("projects.status = ?", filter.Status)

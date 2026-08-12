@@ -104,7 +104,7 @@ type fakeTeamService struct {
 	directory *team.DirectoryResponse
 }
 
-func (f *fakeTeamService) GetDirectory(context.Context) (*team.DirectoryResponse, error) {
+func (f *fakeTeamService) GetDirectory(context.Context, uuid.UUID) (*team.DirectoryResponse, error) {
 	return f.directory, nil
 }
 
@@ -352,7 +352,7 @@ func TestGetLeaderboard_SortsByEXPAndAggregatesDepartments(t *testing.T) {
 	}
 	svc := NewService(repo, &fakeTaskService{}, &fakeTeamService{directory: directory})
 
-	board, err := svc.GetLeaderboard(context.Background())
+	board, err := svc.GetLeaderboard(context.Background(), uuid.New())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

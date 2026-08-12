@@ -1272,10 +1272,16 @@ func (f *fakeAuthService) Logout(context.Context, string) error { panic("not imp
 func (f *fakeAuthService) ListUsers(context.Context) ([]auth.UserResponse, error) {
 	panic("not implemented")
 }
-func (f *fakeAuthService) UpdateRole(context.Context, auth.Role, uuid.UUID, auth.UpdateRoleRequest) (*auth.UserResponse, error) {
+func (f *fakeAuthService) ListUsersByOrganization(context.Context, uuid.UUID) ([]auth.UserResponse, error) {
 	panic("not implemented")
 }
-func (f *fakeAuthService) UpdateDepartment(context.Context, auth.Role, uuid.UUID, auth.UpdateDepartmentRequest) (*auth.UserResponse, error) {
+func (f *fakeAuthService) GetOrganizationID(context.Context, uuid.UUID) (uuid.UUID, error) {
+	panic("not implemented")
+}
+func (f *fakeAuthService) UpdateRole(context.Context, uuid.UUID, auth.Role, uuid.UUID, auth.UpdateRoleRequest) (*auth.UserResponse, error) {
+	panic("not implemented")
+}
+func (f *fakeAuthService) UpdateDepartment(context.Context, uuid.UUID, auth.Role, uuid.UUID, auth.UpdateDepartmentRequest) (*auth.UserResponse, error) {
 	panic("not implemented")
 }
 
